@@ -1,15 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="96" fill="#111"/>
-  <path d="M112 400 L400 400 L112 112 Z" fill="#ffd400"/>
-  <path d="M112 400 L400 400 L112 112 Z" fill="none" stroke="#000" stroke-width="10" stroke-linejoin="round"/>
-  <g stroke="#000" stroke-width="10">
-    <line x1="160" y1="400" x2="160" y2="360"/>
-    <line x1="208" y1="400" x2="208" y2="372"/>
-    <line x1="256" y1="400" x2="256" y2="360"/>
-    <line x1="304" y1="400" x2="304" y2="372"/>
-    <line x1="112" y1="352" x2="152" y2="352"/>
-    <line x1="112" y1="304" x2="140" y2="304"/>
-    <line x1="112" y1="256" x2="152" y2="256"/>
-    <line x1="112" y1="208" x2="140" y2="208"/>
+  <path d="M84 432 L432 432 L84 84 Z" fill="#ffd400" stroke="#000" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M152 380 L292 380 L152 240 Z" fill="#111"/>
+  <g stroke="#000" stroke-width="12" stroke-linecap="square">
+    <line x1="132" y1="432" x2="132" y2="400"/>
+    <line x1="180" y1="432" x2="180" y2="412"/>
+    <line x1="228" y1="432" x2="228" y2="400"/>
+    <line x1="276" y1="432" x2="276" y2="412"/>
+    <line x1="324" y1="432" x2="324" y2="400"/>
+    <line x1="84" y1="384" x2="116" y2="384"/>
+    <line x1="84" y1="336" x2="104" y2="336"/>
+    <line x1="84" y1="288" x2="116" y2="288"/>
+    <line x1="84" y1="240" x2="104" y2="240"/>
+    <line x1="84" y1="192" x2="116" y2="192"/>
   </g>
 </svg>
