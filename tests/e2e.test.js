@@ -43,6 +43,9 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     }
     await page.click('.sheet [data-fk="done"]');
   }
+  async function pick(toolId, fieldId, val) {
+    await page.click(`#toolBody [data-choice="${toolId}.${fieldId}"][data-val="${val}"]`);
+  }
   async function openTool(id, mode) {
     await page.goto(BASE + '#/t/' + id);
     await page.waitForSelector('#screen-tool:not([hidden])');
@@ -162,9 +165,9 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
   await shot('02-calc-tape');
 
   console.log('\nTools');
-  await test('tools grid lists all 9 tools', async () => {
+  await test('tools grid lists all 14 tools', async () => {
     await nav('Tools');
-    eq(await page.$$eval('.tile', (t) => t.length), 9);
+    eq(await page.$$eval('.tile', (t) => t.length), 14);
   });
   await shot('03-tools');
 
@@ -274,6 +277,169 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     await openTool('concrete', 'stairs');
     await setField('sw', '4'); await setField('steps', '3');
     eq(await rowVal('Without waste'), '0.48 cu yd');   // 462 sq in profile x 48"
+  });
+  // ---------------- Grade & Slope
+  await test('Grade: rise 6" in 10\' run → 5%, 20:1', async () => {
+    await openTool('grade', 'rr');
+    await setField('rise', '6"'); await setField('run', '10');
+    eq(await rowVal('Grade'), '5%');
+    eq(await rowVal('Slope ratio'), '20 : 1  (H:V)');
+    eq(await rowVal('Rise per foot'), `5/8"`);
+    eq(await rowVal('Rise per 100 ft'), '5 ft');
+  });
+  await test('Grade: 1\' in 100\' → 1%, 1/8" per ft', async () => {
+    await openTool('grade', 'rr');
+    await setField('rise', '1'); await setField('run', '100');
+    eq(await rowVal('Grade'), '1%');
+    eq(await rowVal('Rise per foot'), `1/8"`);
+  });
+  await test('Grade: run 50\' at 2% → rise 1\'', async () => {
+    await openTool('grade', 'rr');
+    await setField('run', '50'); await setField('pct', '2');
+    eq(await rowVal('Rise'), `1.00'`);
+  });
+  await test('Grade: 4\' rise at 3:1 slope → 12\' run, 33.33%', async () => {
+    await openTool('grade', 'rr');
+    await setField('rise', '4'); await setField('ratio', '3');
+    eq(await rowVal('Run'), `12.00'`);
+    eq(await rowVal('Grade'), '33.33%');
+  });
+  await test('Grade: one value only asks for two', async () => {
+    await openTool('grade', 'rr');
+    await setField('pct', '2');
+    has(await outText(), 'Enter any two');
+  });
+  await test('Elevations: 100.00 → 95.00 over 250\' = 2% down, station list', async () => {
+    await openTool('grade', 'elev');
+    await setField('start', '100'); await setField('end', '95'); await setField('dist', '250'); await setField('interval', '50');
+    eq(await rowVal('Grade'), '2% down ↘');
+    const list = await page.textContent('#out .row.list');
+    has(list, "0+00  —  100.00'"); has(list, "1+50  —  97.00'"); has(list, "2+50  —  95.00'");
+  });
+  await test('Elevations: start + 1.5% up + 120\' → end 7705.25', async () => {
+    await openTool('grade', 'elev');
+    await pick('grade', 'dir', 'up');
+    await setField('start', '7703.45'); await setField('pct', '1.5'); await setField('dist', '120');
+    eq(await rowVal('End elevation'), `7705.25'`);
+  });
+  await test('Pipe fall: 100\' @ 1/4" per ft → 2\' 1", invert 97.92', async () => {
+    await openTool('grade', 'pipe');
+    await setField('pl', '100'); await setField('inv', '100');
+    eq(await rowVal('Total fall'), `2' 1"`);
+    eq(await rowVal('Grade'), '2.083%');
+    eq(await rowVal('End invert elevation'), `97.92'`);
+  });
+  await test('Pipe fall: 60\' at 1% → 7-3/16"', async () => {
+    await openTool('grade', 'pipe');
+    await setField('pl', '60'); await setField('pct', '1');
+    eq(await rowVal('Total fall'), `7-3/16"`);
+  });
+  // ---------------- Excavation
+  await test('Trench 100\' × 24" × 4\' → 29.63 bank, 37.04 loose, 4 loads', async () => {
+    await openTool('dirt', 'trench');
+    await setField('tl', '100'); await setField('td', '4');
+    eq(await rowVal('Excavation (bank)'), '29.63 cu yd');
+    eq(await rowVal('Hauled (loose)'), '37.04 cu yd');
+    eq(await rowVal('Truck loads'), '4 @ 12 yd');
+  });
+  await test('Trench 1:1 sides, 5\' deep, 6" pipe → 129.63 bank, 12\' top', async () => {
+    await openTool('dirt', 'trench');
+    await setField('tl', '100'); await setField('td', '5'); await setField('side', '1'); await setField('pipe', '6');
+    eq(await rowVal('Excavation (bank)'), '129.63 cu yd');
+    eq(await rowVal('Top width'), `12' 0"`);
+    eq(await rowVal('Backfill (bank, less pipe)'), '128.9 cu yd');
+  });
+  await test('Basement pit 40×30×8, 1:1, 2\' overdig → 653.43 cu yd', async () => {
+    await openTool('dirt', 'pit');
+    await setField('pl', '40'); await setField('pw', '30'); await setField('pd', '8');
+    eq(await rowVal('Excavation (bank)'), '653.43 cu yd');
+    eq(await rowVal('Top of hole'), `60' 0" × 50' 0"`);
+    eq(await rowVal('Truck loads'), '69 @ 12 yd');
+  });
+  await test('Fill pad 50×40, avg 1.5\' → 111.11 compacted, 123.46 bank, 154.32 loose', async () => {
+    await openTool('dirt', 'pad');
+    await setField('L', '50'); await setField('W', '40');
+    await setField('d1', '1'); await setField('d2', '1.5'); await setField('d3', '2'); await setField('d4', '1.5');
+    eq(await rowVal('Average depth'), `1.50'`);
+    eq(await rowVal('Fill (compacted in place)'), '111.11 cu yd');
+    eq(await rowVal('Bank yards needed'), '123.46 cu yd');
+    eq(await rowVal('Loose yards to haul'), '154.32 cu yd');
+    eq(await rowVal('Truck loads'), '13 @ 12 yd');
+  });
+  await test('Cut pad 50×40×1\' clay → 74.07 bank, 96.3 loose', async () => {
+    await openTool('dirt', 'pad');
+    await pick('dirt', 'cf', 'cut'); await pick('dirt', 'soil', 'clay');
+    await setField('L', '50'); await setField('W', '40'); await setField('d1', '1');
+    eq(await rowVal('Cut (bank)'), '74.07 cu yd');
+    eq(await rowVal('Hauled (loose)'), '96.3 cu yd');
+  });
+  await test('Average end area 40 & 60 sq ft × 100\' → 185.19 cu yd', async () => {
+    await openTool('dirt', 'endarea');
+    await setField('a1', '40'); await setField('a2', '60'); await setField('el', '100');
+    has(await outText(), '185.19 cu yd');
+  });
+  await test('Swell: 100 bank → 125 loose, 90 compacted; custom swell 30%', async () => {
+    await openTool('dirt', 'swell');
+    await setField('vol', '100');
+    eq(await rowVal('Loose (in the truck)'), '125 cu yd');
+    eq(await rowVal('Compacted'), '90 cu yd');
+    await setField('swell', '30');
+    eq(await rowVal('Loose (in the truck)'), '130 cu yd');
+  });
+  // ---------------- Gravel
+  await test('Gravel 100\'×12\'×4" → 20.74 tons, 2 loads, $622.22', async () => {
+    await openTool('gravel', 'area');
+    await setField('L', '100'); await setField('W', '12'); await setField('price', '30');
+    eq(await rowVal('Tons'), '20.74 tons');
+    eq(await rowVal('Truck loads'), '2 @ 14 tons');
+    eq(await rowVal('Cost'), '$622.22');
+  });
+  await test('Road base 10 cu yd + 15% compaction → 17.25 tons', async () => {
+    await openTool('gravel', 'vol');
+    await pick('gravel', 'mat', 'base');
+    await setField('cy', '10'); await setField('comp', '15');
+    eq(await rowVal('Tons'), '17.25 tons');
+  });
+  // ---------------- Rebar
+  await test('Rebar grid 20×20 #4 @ 18" → 546 LF, 28 sticks, 365 lb', async () => {
+    await openTool('rebar', 'grid');
+    await setField('L', '20'); await setField('W', '20');
+    eq(await rowVal('Total length'), '546 LF');
+    eq(await rowVal("Stock bars (20')"), '28');
+    eq(await rowVal('Weight'), '365 lb');
+  });
+  await test('Rebar footing 100\', 2 bars, dowels @24" → 19 sticks, 51 dowels', async () => {
+    await openTool('rebar', 'line');
+    await setField('fl', '100'); await setField('dsp', '24'); await setField('dl', '30');
+    eq(await rowVal("Stock bars (20')"), '19');
+    eq(await rowVal('Dowels'), '51');
+    eq(await rowVal('Lap splices'), '10 @ 20"');
+  });
+  // ---------------- Block
+  await test('Block wall 40×8, 5% waste → 378 block, 32 bags; solid grout 3.06 cu yd', async () => {
+    await openTool('block');
+    await setField('L', '40'); await setField('H', '8');
+    eq(await rowVal('Blocks'), '378');
+    eq(await rowVal('Mortar mix bags (80 lb)'), '32');
+    await pick('block', 'grout', 'solid');
+    eq(await rowVal('Grout'), '3.06 cu yd');
+  });
+  // ---------------- Concrete additions
+  await test('Concrete wall 40\'×8\'×8" → 7.9 cu yd net, 1 truck', async () => {
+    await openTool('concrete', 'wall');
+    await setField('L', '40'); await setField('wh', '8');
+    eq(await rowVal('Without waste'), '7.9 cu yd');
+    eq(await rowVal('Ready-mix trucks (10 yd)'), '1');
+  });
+  await test('Thick-edge slab 20×20 → 6.81 cu yd net', async () => {
+    await openTool('concrete', 'edge');
+    await setField('L', '20'); await setField('W', '20');
+    eq(await rowVal('Without waste'), '6.81 cu yd');
+  });
+  await test('Pads 24×24×12 × 10 → 1.48 cu yd net', async () => {
+    await openTool('concrete', 'pads');
+    await setField('qty', '10');
+    eq(await rowVal('Without waste'), '1.48 cu yd');
   });
   await test('Lumber: 2×10 × 16\' × 10 = 266.67 BF', async () => {
     await openTool('lumber', 'bf');

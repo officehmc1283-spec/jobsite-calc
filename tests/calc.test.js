@@ -210,6 +210,77 @@
     near(s.stringer, Math.hypot(109.5, 140)); eq(s.ok, true);
   });
 
+  // ---------------------------------------------------------------- grade & slope
+  test('grade: 1\' rise in 100\' = 1%, 100:1', () => {
+    const g = C.grade({ rise: 12, run: 1200 });
+    near(g.pct, 1); near(g.ratio, 100); near(g.inPerFt, 0.12);
+  });
+  test('grade: run + % → rise; rise + ratio → run', () => {
+    near(C.grade({ run: 600, pct: 2 }).rise, 12);
+    const g = C.grade({ rise: 48, ratio: 3 });
+    near(g.run, 144); near(g.pct, 100 / 3);
+  });
+  test('grade: needs two values', () => { throws(() => C.grade({ pct: 2 }), /any two/); throws(() => C.grade({ rise: 5 }), /any two/); });
+  test('elevations: 100 → 95 over 250\' = -2%, stations', () => {
+    const g = C.gradeElevations({ start: 1200, end: 1140, dist: 3000, interval: 600 });
+    near(g.pct, -2); eq(g.stations.length, 6); near(g.stations[2].elev, 1176);
+  });
+  test('elevations: start + grade + distance → end', () => {
+    near(C.gradeElevations({ start: 7703.45 * 12, pct: 1.5, dist: 1440 }).end / 12, 7705.25);
+  });
+  test('elevations: start + end + grade → distance, wrong way errors', () => {
+    near(C.gradeElevations({ start: 1200, end: 1218, pct: 2 }).dist, 900);
+    throws(() => C.gradeElevations({ start: 1200, end: 1218, pct: -2 }), /wrong side/);
+  });
+  test('station formatting', () => {
+    eq(C.station(0), '0+00'); eq(C.station(125), '1+25'); eq(C.station(1234.5), '12+34.5'); eq(C.station(99.999), '1+00'); eq(C.station(1005), '10+05');
+  });
+  test('pipe fall: 100\' @ 1/4"/ft = 25"', () => {
+    const p = C.pipeFall({ length: 1200, slope: 0.25, startInvert: 1200 });
+    near(p.fall, 25); near(p.pct, 2.0833333, 1e-6); near(p.endInvert, 1175);
+  });
+
+  // ---------------------------------------------------------------- earthwork
+  test('trench 100\' x 24" x 4\' vertical = 29.63 cu yd', () => near(C.trench({ length: 1200, width: 24, depth: 48 }).bank / C.CUYD, 800 / 27));
+  test('trench 1:1 sides, 5\' deep, pipe backfill', () => {
+    const t = C.trench({ length: 1200, width: 24, depth: 60, side: 1, pipe: 6 });
+    near(t.bank / C.CUFT, 3500); near(t.topWidth, 144); near((t.bank - t.backfill) / C.CUFT, Math.PI * 0.25 * 0.25 * 100);
+  });
+  test('pit 40x30x8, 1:1, 2\' overdig (prismoidal)', () => {
+    const p = C.pit({ length: 480, width: 360, depth: 96, side: 1, over: 24 });
+    near(p.bank / C.CUFT, 8 / 6 * (44 * 34 + 4 * 52 * 42 + 60 * 50), 1e-6); near(p.topL, 720);
+  });
+  test('pit with vertical sides is a box', () => near(C.pit({ length: 120, width: 120, depth: 60 }).bank, 120 * 120 * 60));
+  test('average end area', () => near(C.averageEndArea(40 * C.SQFT, 60 * C.SQFT, 1200) / C.CUFT, 5000));
+  test('swell / shrink', () => {
+    const f = C.soilFactors('earth');
+    const x = C.swellShrink(100 * C.CUYD, 'bank', f);
+    near(x.loose / C.CUYD, 125); near(x.compacted / C.CUYD, 90);
+    near(C.swellShrink(125 * C.CUYD, 'loose', f).bank / C.CUYD, 100);
+    near(C.swellShrink(90 * C.CUYD, 'compacted', f).bank / C.CUYD, 100);
+    eq(C.soilFactors('clay', 40).swell, 40);
+    eq(C.loads(125 * C.CUYD, 12), 11);
+  });
+  test('tonnage: 100\'x12\'x4" gravel = 20.74 tons', () => {
+    const t = C.tonnage(C.box(1200, 144, 4), 1.4, 0);
+    near(t.cuyd, 400 / 27); near(t.tons, 400 / 27 * 1.4);
+    near(C.tonnage(10 * C.CUYD, 1.5, 15).tons, 17.25);
+  });
+  test('thick-edge slab 20x20, 4" slab, 12x12 edge', () => near(C.thickEdgeSlab(240, 240, 4, 12, 12) / C.CUFT, 400 / 3 + 76 * 8 / 12));
+  test('rebar grid 20x20 #4 @18, 3" cover', () => {
+    const r = C.rebarGrid({ L: 240, W: 240, spacing: 18, cover: 3, size: 4 });
+    eq(r.bars, 28); near(r.lf, 546); eq(r.sticks, 28); near(r.lbs, 546 * 0.668); near(r.lap, 20);
+  });
+  test('rebar grid 10x10 @12 → 2 bars per stick', () => eq(C.rebarGrid({ L: 120, W: 120, spacing: 12, cover: 3, size: 4 }).sticks, 10));
+  test('rebar long bars get lap splices', () => {
+    const r = C.rebarLinear({ length: 1200, count: 2, size: 4, dowelSpacing: 24, dowelLength: 30 });
+    eq(r.splices, 10); eq(r.dowels, 51); near(r.lengthIn, 2 * 1300 + 51 * 30); eq(r.sticks, 12 + 7);
+  });
+  test('block wall 40x8 = 360 block, solid grout 8"', () => {
+    const b = C.blockWall({ length: 480, height: 96, width: 8, grout: 'solid', perBag: 12 });
+    eq(b.blocks, 360); eq(b.mortarBags, 30); near(b.groutCuFt, 320 * 0.258); eq(b.courses, 12);
+  });
+
   // ---------------------------------------------------------------- concrete
   test('concrete slab 10x10x4" = 1.2346 cu yd', () => {
     const c = C.concreteSummary(C.box(120, 120, 4), 0);
