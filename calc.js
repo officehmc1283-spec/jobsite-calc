@@ -523,7 +523,249 @@
     return { radius: r, deg: t / RAD, arc: r * t, chord: c, height: r - Math.sqrt(Math.max(0, r * r - c * c / 4)) };
   }
 
+  // ================================================================ SITE WORK
+  // All lengths in inches, volumes in cu in, like the rest of the engine.
+
+  // ---------------------------------------------------------------- grade & slope
+  // Any two of: rise, run (lengths), pct (grade %), ratio (H:1V).
+  function grade(o) {
+    let pct = null;
+    if (given(o.pct)) { need(o.pct > 0, 'Grade must be greater than zero'); pct = o.pct; }
+    else if (given(o.ratio)) { need(o.ratio > 0, 'Slope ratio must be greater than zero'); pct = 100 / o.ratio; }
+    const count = [o.rise, o.run].filter(given).length + (pct !== null ? 1 : 0);
+    need(count >= 2, 'Enter any two: rise, run, grade % or slope ratio');
+    const r = rightAngle({ rise: o.rise, run: o.run, pct });
+    return {
+      rise: r.rise, run: r.run, slopeLen: r.diag, used: r.used,
+      pct: r.pct, deg: r.deg, pitch: r.pitch,
+      ratio: r.run / r.rise,            // H : 1V
+      inPerFt: 12 * r.rise / r.run,     // inches of rise per foot of run
+      ftPer100: r.pct                   // feet of rise per 100 ft
+    };
+  }
+
+  // Elevations along a grade. start/end/dist in inches, pct signed (+ = uphill).
+  // Needs three of the four. interval (inches) → station list.
+  function gradeElevations(o) {
+    let s = o.start, e = o.end, d = o.dist, p = o.pct;
+    const has = given;
+    if (has(s) && has(e) && has(d)) {
+      need(d > 0, 'Distance must be greater than zero');
+      p = 100 * (e - s) / d;
+    } else if (has(s) && has(p) && has(d)) {
+      need(d > 0, 'Distance must be greater than zero');
+      e = s + p / 100 * d;
+    } else if (has(e) && has(p) && has(d)) {
+      need(d > 0, 'Distance must be greater than zero');
+      s = e - p / 100 * d;
+    } else if (has(s) && has(e) && has(p)) {
+      need(Math.abs(p) > EPS, 'Grade must not be zero');
+      d = (e - s) / (p / 100);
+      need(d > EPS, 'The end elevation is on the wrong side of the start for that direction — switch Up/Down');
+    } else {
+      throw new Error('Enter three of: start elevation, end elevation, distance, grade %');
+    }
+    const stations = [];
+    if (pos(o.interval)) {
+      const step = o.interval;
+      for (let x = 0; x < d - EPS && stations.length < 400; x += step) stations.push({ x, elev: s + p / 100 * x });
+      stations.push({ x: d, elev: e });
+    }
+    return { start: s, end: e, dist: d, pct: p, change: e - s, inPerFt: 12 * p / 100, stations };
+  }
+
+  // Station text: 125 ft → "1+25"
+  function station(ftVal) {
+    const neg = ftVal < 0;
+    const cents = Math.round(Math.abs(ftVal) * 100);   // work in 0.01 ft so 99.999 → 1+00
+    const hundreds = Math.floor(cents / 10000);
+    const rest = (cents - hundreds * 10000) / 100;
+    return (neg ? '-' : '') + hundreds + '+' + (rest < 10 ? '0' : '') + fmtNum(rest, 2);
+  }
+
+  // Pipe / drain fall. length inches, slope in inches per foot. startInvert inches (optional).
+  function pipeFall(o) {
+    need(pos(o.length), 'Enter pipe length');
+    need(pos(o.slope), 'Enter slope');
+    const fall = o.length / 12 * o.slope;
+    return {
+      fall, pct: o.slope / 12 * 100, slope: o.slope,
+      endInvert: given(o.startInvert) ? o.startInvert - fall : null
+    };
+  }
+
+  // ---------------------------------------------------------------- earthwork
+  // Typical swell (bank → loose) and shrink (bank → compacted) in %. Rough values; soils vary.
+  const SOILS = {
+    earth: { label: 'Common earth', swell: 25, shrink: 10 },
+    clay: { label: 'Clay', swell: 30, shrink: 15 },
+    sand: { label: 'Sand / gravel', swell: 12, shrink: 7 },
+    topsoil: { label: 'Topsoil', swell: 43, shrink: 20 },
+    rock: { label: 'Rock (blasted)', swell: 50, shrink: -30 }
+  };
+  function soilFactors(material, swell, shrink) {
+    const s = SOILS[material] || SOILS.earth;
+    const sw = given(swell) ? swell : s.swell;
+    const sh = given(shrink) ? shrink : s.shrink;
+    need(sw > -100 && sh < 100, 'Swell/shrink % out of range');
+    return { swell: sw, shrink: sh };
+  }
+  // Convert a volume between bank / loose / compacted states.
+  function swellShrink(vol, from, f) {
+    const toBank = { bank: 1, loose: 1 / (1 + f.swell / 100), compacted: 1 / (1 - f.shrink / 100) };
+    need(toBank[from] != null, 'Unknown state');
+    const bank = vol * toBank[from];
+    return { bank, loose: bank * (1 + f.swell / 100), compacted: bank * (1 - f.shrink / 100) };
+  }
+  function loads(vol, capCuYd) {
+    return Math.ceil(vol / CU('yd') / capCuYd - EPS);
+  }
+
+  // Trench with optional sloped sides (side = H per 1 V each side). Pipe OD removes backfill.
+  function trench(o) {
+    need(pos(o.length), 'Enter trench length');
+    need(pos(o.width), 'Enter bottom width');
+    need(pos(o.depth), 'Enter depth');
+    const side = o.side || 0;
+    need(side >= 0, 'Side slope cannot be negative');
+    const avgWidth = o.width + side * o.depth;
+    const bank = avgWidth * o.depth * o.length;
+    const pipe = pos(o.pipe) ? Math.PI * o.pipe * o.pipe / 4 * o.length : 0;
+    need(!pipe || o.pipe < o.depth, 'Pipe is bigger than the trench');
+    return { bank, topWidth: o.width + 2 * side * o.depth, pipe, backfill: bank - pipe, sectionArea: avgWidth * o.depth };
+  }
+
+  // Pit / basement: rectangular bottom (plus overdig each side), sloped sides, prismoidal formula.
+  function pit(o) {
+    need(pos(o.length) && pos(o.width), 'Enter bottom length and width');
+    need(pos(o.depth), 'Enter depth');
+    const side = o.side || 0, over = o.over || 0;
+    need(side >= 0 && over >= 0, 'Slope and overdig cannot be negative');
+    const bL = o.length + 2 * over, bW = o.width + 2 * over;
+    const run = side * o.depth;
+    const tL = bL + 2 * run, tW = bW + 2 * run;
+    const A1 = bL * bW, A2 = tL * tW, Am = (bL + run) * (bW + run);
+    return { bank: o.depth / 6 * (A1 + 4 * Am + A2), bottomL: bL, bottomW: bW, topL: tL, topW: tW };
+  }
+
+  // Average end area between two cross sections (areas sq in, length in).
+  function averageEndArea(a1, a2, len) {
+    need(a1 >= 0 && a2 >= 0 && (a1 + a2) > 0, 'Enter the two end areas');
+    need(pos(len), 'Enter distance between sections');
+    return (a1 + a2) / 2 * len;
+  }
+
+  // ---------------------------------------------------------------- aggregate / material by weight
+  // Typical loose weights, tons (2000 lb) per cu yd.
+  const MATERIALS = {
+    gravel: { label: 'Gravel / crushed stone', tpy: 1.4 },
+    base: { label: 'Road base', tpy: 1.5 },
+    sand: { label: 'Sand', tpy: 1.35 },
+    fill: { label: 'Fill dirt', tpy: 1.2 },
+    topsoil: { label: 'Topsoil', tpy: 1.0 },
+    rock: { label: 'River rock', tpy: 1.35 },
+    asphalt: { label: 'Asphalt (hot mix)', tpy: 2.0 }
+  };
+  function tonnage(volCuIn, tonsPerCuYd, compactPct) {
+    need(volCuIn > 0, 'Volume must be greater than zero');
+    need(pos(tonsPerCuYd), 'Enter tons per cu yd');
+    const order = volCuIn * (1 + (compactPct || 0) / 100);
+    const cuyd = order / CU('yd');
+    return { cuyd, tons: cuyd * tonsPerCuYd, netCuyd: volCuIn / CU('yd') };
+  }
+
+  // ---------------------------------------------------------------- concrete shapes
+  // Slab with a thickened (turned-down) edge. edgeDepth = total depth at the edge.
+  function thickEdgeSlab(L, W, t, edgeDepth, edgeWidth) {
+    need(pos(L) && pos(W) && pos(t), 'Enter slab length, width and thickness');
+    const ed = Math.max(edgeDepth || 0, t);
+    const ew = Math.min(edgeWidth || 0, L / 2, W / 2);
+    const ringArea = L * W - (L - 2 * ew) * (W - 2 * ew);
+    return L * W * t + ringArea * (ed - t);
+  }
+
+  // ---------------------------------------------------------------- rebar
+  const REBAR = {
+    3: { dia: 0.375, lbft: 0.376 }, 4: { dia: 0.5, lbft: 0.668 }, 5: { dia: 0.625, lbft: 1.043 },
+    6: { dia: 0.75, lbft: 1.502 }, 7: { dia: 0.875, lbft: 2.044 }, 8: { dia: 1.0, lbft: 2.670 }
+  };
+  // One run of bar of length len: splices needed with given stock & lap, and length incl. laps.
+  function barRun(len, stock, lap) {
+    if (len <= stock + EPS) return { splices: 0, total: len };
+    need(stock > lap, 'Lap is longer than the stock bar');
+    const splices = Math.ceil((len - stock) / (stock - lap) - EPS);
+    return { splices, total: len + splices * lap };
+  }
+  function rebarSummary(size, runs, stock) {
+    const b = REBAR[size];
+    need(b, 'Unknown bar size');
+    let lf = 0, splices = 0, bars = 0, sticks = 0;
+    runs.forEach((r) => {
+      lf += r.total * r.count; splices += r.splices * r.count; bars += r.count;
+      // Short bars: whole bars cut from each stick. Long bars: sticks per spliced run.
+      if (!r.splices) sticks += Math.ceil(r.count / Math.max(1, Math.floor(stock / r.total + EPS)) - EPS);
+      else sticks += r.count * Math.ceil(r.total / stock - EPS);
+    });
+    return { bars, lengthIn: lf, lf: lf / 12, splices, sticks, lbs: lf / 12 * b.lbft };
+  }
+  // Slab grid: L, W, spacing, edge cover (inches); stock (in); lap (in, default 40 bar diameters).
+  function rebarGrid(o) {
+    need(pos(o.L) && pos(o.W), 'Enter slab length and width');
+    need(pos(o.spacing), 'Enter bar spacing');
+    const b = REBAR[o.size];
+    need(b, 'Unknown bar size');
+    const cover = o.cover || 0;
+    const stock = o.stock || 240;
+    const lap = given(o.lap) ? o.lap : 40 * b.dia;
+    const barL = o.L - 2 * cover, barW = o.W - 2 * cover;
+    need(barL > 0 && barW > 0, 'Edge cover is bigger than the slab');
+    const nAlongL = Math.floor(barW / o.spacing + EPS) + 1;  // bars running the length
+    const nAlongW = Math.floor(barL / o.spacing + EPS) + 1;  // bars running the width
+    const r1 = Object.assign({ count: nAlongL }, barRun(barL, stock, lap));
+    const r2 = Object.assign({ count: nAlongW }, barRun(barW, stock, lap));
+    return Object.assign(rebarSummary(o.size, [r1, r2], stock), { nAlongL, nAlongW, barL, barW, lap });
+  }
+  // Continuous bars in a footing/wall plus optional dowels.
+  function rebarLinear(o) {
+    need(pos(o.length), 'Enter footing length');
+    need(pos(o.count), 'Enter number of bars');
+    const b = REBAR[o.size];
+    need(b, 'Unknown bar size');
+    const stock = o.stock || 240;
+    const lap = given(o.lap) ? o.lap : 40 * b.dia;
+    const runs = [Object.assign({ count: Math.round(o.count) }, barRun(o.length, stock, lap))];
+    let dowels = 0;
+    if (pos(o.dowelSpacing) && pos(o.dowelLength)) {
+      dowels = Math.floor(o.length / o.dowelSpacing + EPS) + 1;
+      runs.push({ count: dowels, splices: 0, total: o.dowelLength });
+    }
+    return Object.assign(rebarSummary(o.size, runs, stock), { dowels, lap });
+  }
+
+  // ---------------------------------------------------------------- CMU block
+  // Grout (cu ft per sq ft of wall, fully grouted), typical NCMA figures.
+  const CMU_GROUT = { 6: 0.167, 8: 0.258, 10: 0.34, 12: 0.42 };
+  function blockWall(o) {
+    need(pos(o.length) && pos(o.height), 'Enter wall length and height');
+    const gross = o.length * o.height;                    // sq in
+    const net = gross - (o.openings || 0);
+    need(net > 0, 'Openings are bigger than the wall');
+    const perSqFt = 144 / (16 * 8);                        // 8x16 face = 1.125 per sq ft
+    const blocks = Math.ceil(net / SQ('ft') * perSqFt * (1 + (o.waste || 0) / 100) - EPS);
+    const groutCuFt = o.grout === 'solid' ? net / SQ('ft') * (CMU_GROUT[o.width] || 0) : 0;
+    return {
+      net, blocks,
+      courses: Math.ceil(o.height / 8 - EPS),
+      mortarBags: pos(o.perBag) ? Math.ceil(blocks / o.perBag - EPS) : null,
+      groutCuFt, groutCuYd: groutCuFt / 27
+    };
+  }
+
   const Calc = {
+    grade, gradeElevations, station, pipeFall,
+    SOILS, soilFactors, swellShrink, loads, trench, pit, averageEndArea,
+    MATERIALS, tonnage, thickEdgeSlab,
+    REBAR, barRun, rebarGrid, rebarLinear, CMU_GROUT, blockWall,
     IN, MODES, EPS, IRC_MAX_RISER, IRC_MIN_TREAD,
     tokenize, evaluate, format, formatFtIn, formatInches, fmtNum, fraction, dimName,
     add, mul, div,

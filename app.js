@@ -233,6 +233,7 @@
       V('Without waste', cuIn, 'cuyd'),
       N('80 lb bags (0.60 cu ft each)', s.bags80, 0),
       N('60 lb bags (0.45 cu ft each)', s.bags60, 0),
+      N('Ready-mix trucks (10 yd)', Math.ceil(s.cuyd / 10 - C.EPS), 0),
       I('Includes ' + C.fmtNum(wastePct, 1) + '% waste.')
     ];
   }
@@ -245,6 +246,33 @@
       rows.push(V('Volume', area * depth, 'cuyd'));
     }
     return rows;
+  }
+  const soilChoice = () => choice('soil', 'Material', Object.keys(C.SOILS).map((k) => [k, C.SOILS[k].label]), 'earth');
+  const materialChoice = () => choice('mat', 'Material', Object.keys(C.MATERIALS).map((k) => [k, C.MATERIALS[k].label]), 'gravel');
+  const barChoice = () => choice('bar', 'Bar size', [['3', '#3'], ['4', '#4'], ['5', '#5'], ['6', '#6'], ['7', '#7'], ['8', '#8']], '4');
+
+  function gravelRows(volCuIn, v) {
+    const tpy = v.tpy != null ? v.tpy : C.MATERIALS[v.mat].tpy;
+    const t = C.tonnage(volCuIn, tpy, v.comp);
+    const rows = [
+      N('Tons', t.tons, 2, ' tons', { big: true }),
+      V('Cubic yards to order', t.cuyd * C.CUYD, 'cuyd'),
+      N('Truck loads', Math.ceil(t.tons / v.trk - C.EPS), 0, ' @ ' + C.fmtNum(v.trk, 1) + ' tons')
+    ];
+    if (v.price != null) rows.push(T('Cost', '$' + (t.tons * v.price).toFixed(2)));
+    rows.push(I(C.fmtNum(tpy, 2) + ' tons per cu yd (' + C.MATERIALS[v.mat].label + ')' +
+      (v.comp ? ', plus ' + C.fmtNum(v.comp, 1) + '% for compaction' : '') + '. Ask your supplier for their weight.'));
+    return rows;
+  }
+
+  function rebarRows(r, v) {
+    return [
+      N('Total length', r.lf, 1, ' LF', { big: true }),
+      N('Stock bars (' + C.fmtNum(v.stock / 12, 1) + "')", r.sticks, 0, '', { big: true }),
+      N('Weight', r.lbs, 0, ' lb'),
+      N('Bars cut', r.bars, 0),
+      N('Lap splices', r.splices, 0, ' @ ' + C.formatInches(r.lap, prec()))
+    ];
   }
   const depthField = len('depth', 'Depth / thickness', 'in', { hint: 'for volume' });
 
@@ -269,6 +297,81 @@
           ];
         }
       }]
+    },
+    {
+      id: 'grade', title: 'Grade & Slope', desc: 'Rise/run → % grade · elevations · pipe fall',
+      modes: [
+        {
+          id: 'rr', label: 'Rise + Run',
+          note: 'Enter any two: rise and run, or one of them plus grade % or slope ratio (H:1V, e.g. 3 for a 3:1 bank).',
+          fields: [
+            len('rise', 'Rise (or fall)', 'ft'), len('run', 'Run (horizontal)', 'ft'),
+            num('pct', 'Grade %'), num('ratio', 'Slope ratio H : 1V')
+          ],
+          compute(v) {
+            const g = C.grade(v);
+            const names = { rise: 'rise', run: 'run', angle: 'grade' };
+            return [
+              I('Solved from ' + g.used.map((u) => names[u]).join(' + ') + '.'),
+              N('Grade', g.pct, 2, '%', { big: true }),
+              T('Slope ratio', C.fmtNum(g.ratio, 2) + ' : 1  (H:V)'),
+              L('Rise per foot', g.inPerFt, { fmt: 'in' }),
+              N('Rise per 100 ft', g.ftPer100, 2, ' ft'),
+              N('Angle', g.deg, 2, '°'), N('Pitch', g.pitch, 2, ' / 12'),
+              L('Rise', g.rise, { fmt: 'ftdec' }), L('Run', g.run, { fmt: 'ftdec' }),
+              L('Slope length', g.slopeLen, { fmt: 'ftdec' })
+            ];
+          }
+        },
+        {
+          id: 'elev', label: 'Elevations',
+          note: 'Enter three of the four: start elevation, end elevation, distance, grade %. Elevations in feet (e.g. 7703.45). Add a station interval to get a grade-stake list.',
+          fields: [
+            len('start', 'Start elevation', 'ft'), len('end', 'End elevation', 'ft'),
+            len('dist', 'Horizontal distance', 'ft'), num('pct', 'Grade %'),
+            choice('dir', 'Grade direction (when entering grade %)', [['up', 'Up ↗'], ['down', 'Down ↘']], 'down'),
+            len('interval', 'Station interval', 'ft', { hint: 'optional, e.g. 25 or 50' })
+          ],
+          compute(v) {
+            const pct = v.pct == null ? null : (v.dir === 'down' ? -v.pct : v.pct);
+            const g = C.gradeElevations({ start: v.start, end: v.end, dist: v.dist, pct, interval: v.interval });
+            const rows = [
+              N('Grade', Math.abs(g.pct), 3, '% ' + (g.pct < 0 ? 'down ↘' : g.pct > 0 ? 'up ↗' : 'flat'), { big: true }),
+              L('Start elevation', g.start, { fmt: 'ftdec' }),
+              L('End elevation', g.end, { fmt: 'ftdec', big: true }),
+              L('Elevation change', g.change, { fmt: 'ftdec' }),
+              L('Horizontal distance', g.dist, { fmt: 'ftdec' }),
+              L('Change per foot', Math.abs(g.inPerFt), { fmt: 'in' })
+            ];
+            if (g.stations.length) {
+              rows.push(LIST('Stations (station — elevation)', g.stations.map((st) =>
+                C.station(st.x / 12) + '  —  ' + (st.elev / 12).toFixed(2) + "'")));
+            }
+            return rows;
+          }
+        },
+        {
+          id: 'pipe', label: 'Pipe fall',
+          note: 'IPC minimum drain slope: 2-1/2" pipe and smaller 1/4" per ft; 3"–6" pipe 1/8" per ft; 8" and larger 1/16" per ft. Check your local code and sewer district specs.',
+          fields: [
+            len('pl', 'Pipe run length', 'ft', { req: true }),
+            num('slope', 'Slope (inches per foot)', { def: 0.25, hint: 'e.g. 1/8, 1/4' }),
+            num('pct', 'Or grade %', { hint: 'overrides inches per foot' }),
+            len('inv', 'Start invert elevation', 'ft', { hint: 'optional' })
+          ],
+          compute(v) {
+            const slope = v.pct != null ? v.pct / 100 * 12 : v.slope;
+            const p = C.pipeFall({ length: v.pl, slope, startInvert: v.inv });
+            const rows = [
+              L('Total fall', p.fall, { big: true }),
+              N('Grade', p.pct, 3, '%'),
+              L('Slope per foot', p.slope, { fmt: 'in' })
+            ];
+            if (p.endInvert != null) rows.push(L('End invert elevation', p.endInvert, { fmt: 'ftdec', big: true }));
+            return rows;
+          }
+        }
+      ]
     },
     {
       id: 'rafters', title: 'Rafters', desc: 'Common · hip/valley · jacks',
@@ -369,8 +472,239 @@
             len('landing', 'Top landing depth', 'in', { hint: 'blank = one tread' }), waste(concreteWaste)
           ],
           compute: (v) => concreteRows(C.concreteStairs(v.sw, v.steps, v.sr, v.st, v.landing), v.waste)
+        },
+        {
+          id: 'wall', label: 'Wall',
+          fields: [
+            len('L', 'Wall length', 'ft', { req: true }), len('wh', 'Wall height', 'ft', { req: true }),
+            len('wt', 'Wall thickness', 'in', { def: 8 }), waste(concreteWaste)
+          ],
+          compute: (v) => concreteRows(C.box(v.L, v.wh, v.wt, 1), v.waste)
+        },
+        {
+          id: 'edge', label: 'Thick-edge slab',
+          note: 'Monolithic slab with a turned-down edge. Edge depth is the total depth at the edge (slab included).',
+          fields: [
+            len('L', 'Length', 'ft', { req: true }), len('W', 'Width', 'ft', { req: true }),
+            len('thick', 'Slab thickness', 'in', { def: 4 }),
+            len('ed', 'Edge depth (total)', 'in', { def: 12 }), len('ew', 'Edge width (bottom)', 'in', { def: 12 }),
+            waste(concreteWaste)
+          ],
+          compute: (v) => concreteRows(C.thickEdgeSlab(v.L, v.W, v.thick, v.ed, v.ew), v.waste)
+        },
+        {
+          id: 'pads', label: 'Pads',
+          note: 'Square or rectangular footing pads (e.g. under posts or piers).',
+          fields: [
+            len('pl', 'Pad length', 'in', { def: 24 }), len('pw', 'Pad width', 'in', { def: 24 }),
+            len('pd', 'Pad depth', 'in', { def: 12 }), num('qty', 'Number of pads', { req: true }), waste(concreteWaste)
+          ],
+          compute: (v) => concreteRows(C.box(v.pl, v.pw, v.pd, v.qty), v.waste)
         }
       ]
+    },
+    {
+      id: 'dirt', title: 'Excavation', desc: 'Trench · pit · cut/fill · swell & trucks',
+      modes: [
+        {
+          id: 'trench', label: 'Trench',
+          note: 'Side slope is horizontal per 1 vertical on each side (0 = vertical walls, 1 = 1:1, 1.5 = 1-1/2:1). Bank = in the ground; loose = in the truck.',
+          fields: [
+            len('tl', 'Trench length', 'ft', { req: true }), len('tw', 'Bottom width', 'in', { def: 24 }),
+            len('td', 'Depth', 'ft', { req: true }), num('side', 'Side slope H : 1V', { def: 0 }),
+            len('pipe', 'Pipe outside diameter', 'in', { hint: 'optional, for backfill' }),
+            soilChoice(), num('swell', 'Swell %', { hint: 'blank = material default' }),
+            num('truck', 'Truck capacity (loose cu yd)', { def: 12 })
+          ],
+          compute(v) {
+            const t = C.trench({ length: v.tl, width: v.tw, depth: v.td, side: v.side, pipe: v.pipe });
+            const f = C.soilFactors(v.soil, v.swell, null);
+            const loose = t.bank * (1 + f.swell / 100);
+            const rows = [
+              V('Excavation (bank)', t.bank, 'cuyd', { big: true }),
+              V('Hauled (loose)', loose, 'cuyd'),
+              N('Truck loads', C.loads(loose, v.truck), 0, ' @ ' + C.fmtNum(v.truck, 1) + ' yd'),
+              L('Top width', t.topWidth)
+            ];
+            if (t.pipe) rows.push(V('Backfill (bank, less pipe)', t.backfill, 'cuyd'));
+            rows.push(I('Swell ' + C.fmtNum(f.swell, 1) + '% (' + C.SOILS[v.soil].label + ').'));
+            return rows;
+          }
+        },
+        {
+          id: 'pit', label: 'Pit / Basement',
+          note: 'Bottom is the footprint; overdig adds working room on every side. Sides slope back at H:1V. Uses the prismoidal formula.',
+          fields: [
+            len('pl', 'Bottom length', 'ft', { req: true }), len('pw', 'Bottom width', 'ft', { req: true }),
+            len('pd', 'Depth', 'ft', { req: true }), num('side', 'Side slope H : 1V', { def: 1 }),
+            len('over', 'Overdig each side', 'ft', { def: 2 }),
+            soilChoice(), num('swell', 'Swell %', { hint: 'blank = material default' }),
+            num('truck', 'Truck capacity (loose cu yd)', { def: 12 })
+          ],
+          compute(v) {
+            const p = C.pit({ length: v.pl, width: v.pw, depth: v.pd, side: v.side, over: v.over });
+            const f = C.soilFactors(v.soil, v.swell, null);
+            const loose = p.bank * (1 + f.swell / 100);
+            return [
+              V('Excavation (bank)', p.bank, 'cuyd', { big: true }),
+              V('Hauled (loose)', loose, 'cuyd'),
+              N('Truck loads', C.loads(loose, v.truck), 0, ' @ ' + C.fmtNum(v.truck, 1) + ' yd'),
+              T('Bottom of hole', C.formatFtIn(p.bottomL, prec()) + ' × ' + C.formatFtIn(p.bottomW, prec())),
+              T('Top of hole', C.formatFtIn(p.topL, prec()) + ' × ' + C.formatFtIn(p.topW, prec())),
+              I('Swell ' + C.fmtNum(f.swell, 1) + '% (' + C.SOILS[v.soil].label + ').')
+            ];
+          }
+        },
+        {
+          id: 'pad', label: 'Cut / Fill pad',
+          note: 'Enter the cut or fill depth at up to 4 points (e.g. the corners); the average is used. Fill: compacted volume in place, the bank yards needed to make it (shrink), and the loose yards to haul (swell).',
+          fields: [
+            choice('cf', 'Cut or fill', [['cut', 'Cut'], ['fill', 'Fill']], 'fill'),
+            len('L', 'Pad length', 'ft', { req: true }), len('W', 'Pad width', 'ft', { req: true }),
+            len('d1', 'Depth 1', 'ft', { req: true }), len('d2', 'Depth 2', 'ft'), len('d3', 'Depth 3', 'ft'), len('d4', 'Depth 4', 'ft'),
+            soilChoice(), num('swell', 'Swell %', { hint: 'blank = material default' }), num('shrink', 'Shrink %', { hint: 'blank = material default' }),
+            num('truck', 'Truck capacity (loose cu yd)', { def: 12 })
+          ],
+          compute(v) {
+            const ds = [v.d1, v.d2, v.d3, v.d4].filter((x) => x != null);
+            const avg = ds.reduce((a, b) => a + b, 0) / ds.length;
+            const vol = v.L * v.W * avg;
+            const f = C.soilFactors(v.soil, v.swell, v.shrink);
+            const rows = [L('Average depth', avg, { fmt: 'ftdec' }), A('Pad area', v.L * v.W)];
+            if (v.cf === 'cut') {
+              const loose = vol * (1 + f.swell / 100);
+              rows.push(V('Cut (bank)', vol, 'cuyd', { big: true }), V('Hauled (loose)', loose, 'cuyd'),
+                N('Truck loads', C.loads(loose, v.truck), 0, ' @ ' + C.fmtNum(v.truck, 1) + ' yd'));
+            } else {
+              const x = C.swellShrink(vol, 'compacted', f);
+              rows.push(V('Fill (compacted in place)', vol, 'cuyd', { big: true }),
+                V('Bank yards needed', x.bank, 'cuyd'), V('Loose yards to haul', x.loose, 'cuyd', { big: true }),
+                N('Truck loads', C.loads(x.loose, v.truck), 0, ' @ ' + C.fmtNum(v.truck, 1) + ' yd'));
+            }
+            rows.push(I('Swell ' + C.fmtNum(f.swell, 1) + '%, shrink ' + C.fmtNum(f.shrink, 1) + '% (' + C.SOILS[v.soil].label + '). Typical values — soils vary.'));
+            return rows;
+          }
+        },
+        {
+          id: 'endarea', label: 'Avg end area',
+          note: 'Road/ditch cut or fill between two cross sections: (area 1 + area 2) ÷ 2 × distance. Get section areas from the Area tool (tap a result to put it on the tape, then use Ans).',
+          fields: [
+            num('a1', 'End area 1 (sq ft)', { req: true }), num('a2', 'End area 2 (sq ft)', { req: true }),
+            len('el', 'Distance between sections', 'ft', { req: true })
+          ],
+          compute(v) {
+            const vol = C.averageEndArea(v.a1 * C.SQFT, v.a2 * C.SQFT, v.el);
+            return [V('Volume', vol, 'cuyd', { big: true }), V('Volume', vol, 'cuft')];
+          }
+        },
+        {
+          id: 'swell', label: 'Bank / Loose / Compacted',
+          note: 'Convert yards between in-the-ground (bank), in-the-truck (loose) and compacted.',
+          fields: [
+            num('vol', 'Volume (cu yd)', { req: true }),
+            choice('from', 'That volume is', [['bank', 'Bank'], ['loose', 'Loose'], ['compacted', 'Compacted']], 'bank'),
+            soilChoice(), num('swell', 'Swell %', { hint: 'blank = material default' }), num('shrink', 'Shrink %', { hint: 'blank = material default' }),
+            num('truck', 'Truck capacity (loose cu yd)', { def: 12 })
+          ],
+          compute(v) {
+            const f = C.soilFactors(v.soil, v.swell, v.shrink);
+            const x = C.swellShrink(v.vol * C.CUYD, v.from, f);
+            return [
+              V('Bank (in the ground)', x.bank, 'cuyd', { big: v.from !== 'bank' }),
+              V('Loose (in the truck)', x.loose, 'cuyd', { big: v.from !== 'loose' }),
+              V('Compacted', x.compacted, 'cuyd', { big: v.from !== 'compacted' }),
+              N('Truck loads', C.loads(x.loose, v.truck), 0, ' @ ' + C.fmtNum(v.truck, 1) + ' yd'),
+              I('Swell ' + C.fmtNum(f.swell, 1) + '%, shrink ' + C.fmtNum(f.shrink, 1) + '% (' + C.SOILS[v.soil].label + '). Typical values — soils vary.')
+            ];
+          }
+        }
+      ]
+    },
+    {
+      id: 'gravel', title: 'Gravel & Fill', desc: 'Tons · yards · truck loads',
+      modes: [
+        {
+          id: 'area', label: 'By area',
+          fields: [
+            len('L', 'Length', 'ft', { req: true }), len('W', 'Width', 'ft', { req: true }),
+            len('D', 'Depth', 'in', { def: 4 }), materialChoice(),
+            num('tpy', 'Tons per cu yd', { hint: 'blank = material default' }),
+            num('comp', 'Compaction extra %', { def: 0, hint: 'e.g. 15–20 for road base' }),
+            num('trk', 'Truck capacity (tons)', { def: 14 }), num('price', 'Price per ton ($)', {})
+          ],
+          compute: (v) => gravelRows(v.L * v.W * v.D, v)
+        },
+        {
+          id: 'vol', label: 'By volume',
+          fields: [
+            num('cy', 'Volume (cu yd)', { req: true }), materialChoice(),
+            num('tpy', 'Tons per cu yd', { hint: 'blank = material default' }),
+            num('comp', 'Compaction extra %', { def: 0 }),
+            num('trk', 'Truck capacity (tons)', { def: 14 }), num('price', 'Price per ton ($)', {})
+          ],
+          compute: (v) => gravelRows(v.cy * C.CUYD, v)
+        }
+      ]
+    },
+    {
+      id: 'rebar', title: 'Rebar', desc: 'Slab grid · footing bars · weight',
+      modes: [
+        {
+          id: 'grid', label: 'Slab grid',
+          note: 'Bars both ways. Lap defaults to 40 bar diameters (e.g. 20" for #4) — use your engineer\'s spec. Stock count assumes short bars are cut from full sticks.',
+          fields: [
+            len('L', 'Slab length', 'ft', { req: true }), len('W', 'Slab width', 'ft', { req: true }),
+            len('sp', 'Bar spacing (O.C.)', 'in', { def: 18 }), len('cov', 'Edge cover', 'in', { def: 3 }),
+            barChoice(), len('stock', 'Stock length', 'ft', { def: 20 }), len('lap', 'Lap splice', 'in', { hint: 'blank = 40 bar dia.' })
+          ],
+          compute(v) {
+            const r = C.rebarGrid({ L: v.L, W: v.W, spacing: v.sp, cover: v.cov, size: +v.bar, stock: v.stock, lap: v.lap });
+            return rebarRows(r, v).concat([
+              I(r.nAlongL + ' bars @ ' + C.formatFtIn(r.barL, prec()) + ' + ' + r.nAlongW + ' bars @ ' + C.formatFtIn(r.barW, prec()) + '.')
+            ]);
+          }
+        },
+        {
+          id: 'line', label: 'Footing / Wall',
+          note: 'Continuous horizontal bars, plus optional vertical dowels at a spacing.',
+          fields: [
+            len('fl', 'Footing length', 'ft', { req: true }), num('n', 'Number of continuous bars', { def: 2 }),
+            barChoice(), len('stock', 'Stock length', 'ft', { def: 20 }), len('lap', 'Lap splice', 'in', { hint: 'blank = 40 bar dia.' }),
+            len('dsp', 'Dowel spacing', 'in', { hint: 'optional' }), len('dl', 'Dowel length', 'in', { hint: 'optional' })
+          ],
+          compute(v) {
+            const r = C.rebarLinear({ length: v.fl, count: v.n, size: +v.bar, stock: v.stock, lap: v.lap, dowelSpacing: v.dsp, dowelLength: v.dl });
+            const rows = rebarRows(r, v);
+            if (r.dowels) rows.push(N('Dowels', r.dowels, 0, ''));
+            return rows;
+          }
+        }
+      ]
+    },
+    {
+      id: 'block', title: 'Block (CMU)', desc: 'Block count · mortar · grout',
+      note: 'Standard 8"×16" face = 1.125 block per sq ft. Mortar and grout are estimates — grout is for fully grouted walls (typical NCMA volumes).',
+      modes: [{
+        id: 'main',
+        fields: [
+          len('L', 'Wall length', 'ft', { req: true }), len('H', 'Wall height', 'ft', { req: true }),
+          num('open', 'Openings to deduct (sq ft)', { def: 0 }),
+          choice('bw', 'Block width', [['6', '6"'], ['8', '8"'], ['10', '10"'], ['12', '12"']], '8'),
+          choice('grout', 'Grout', [['none', 'None / cells only'], ['solid', 'Solid grouted']], 'none'),
+          num('bwaste', 'Waste %', { def: 5 }), num('perBag', 'Blocks per 80 lb mortar bag', { def: 12 })
+        ],
+        compute(v) {
+          const b = C.blockWall({ length: v.L, height: v.H, openings: v.open * C.SQFT, width: +v.bw, grout: v.grout, waste: v.bwaste, perBag: v.perBag });
+          const rows = [
+            N('Blocks', b.blocks, 0, '', { big: true }),
+            A('Net wall area', b.net),
+            N('Courses (8")', b.courses, 0),
+            N('Mortar mix bags (80 lb)', b.mortarBags, 0)
+          ];
+          if (v.grout === 'solid') rows.push(V('Grout', b.groutCuFt * C.CUFT, 'cuyd', { big: true }));
+          return rows;
+        }
+      }]
     },
     {
       id: 'lumber', title: 'Lumber', desc: 'Board feet · wall studs',
@@ -680,6 +1014,9 @@
       if (r.fmt === 'in') {
         val = C.formatInches(v, prec());
         sub = C.fmtNum(v, 3) + '" · ' + C.fmtNum(v * 25.4, 1) + ' mm';
+      } else if (r.fmt === 'ftdec') {
+        val = (Math.abs(v) < 0.006 ? 0 : v / 12).toFixed(2) + "'";
+        sub = C.formatFtIn(v, prec()) + ' · ' + C.fmtNum(v * 0.0254, 3) + ' m';
       } else {
         val = C.formatFtIn(v, prec());
         sub = C.fmtNum(v / 12, 3) + "' · " + C.fmtNum(v, 3) + '" · ' + C.fmtNum(v * 0.0254, 3) + ' m';

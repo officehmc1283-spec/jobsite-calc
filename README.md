@@ -63,7 +63,7 @@ python3 -m http.server 8765 &
 node tests/e2e.test.js
 ```
 
-Last run (Sept 24, 2026): unit tests 61/61 passed, phone test 56/56 passed, no JavaScript errors, offline cold start works.
+Last run (Sept 24, 2026): unit tests 81/81 passed, phone test 80/80 passed, no JavaScript errors, offline cold start works.
 
 `tests/stairs.sweep.js` checks the stair tool against independent math for every total rise from 6" to 20' in 1/16" steps (26,215 cases): `node tests/stairs.sweep.js`.
 
@@ -92,8 +92,25 @@ After editing any file, change `VERSION` in `sw.js` (e.g. `jobsite-calc-v2`) and
 Phones pick up the new version the next time the app opens with signal, and use it from the launch after that.
 Tape, settings and tool inputs are kept.
 
+## Tools
+
+1 Right Angle · 2 Grade & Slope · 3 Rafters · 4 Stairs · 5 Concrete · 6 Excavation · 7 Gravel & Fill · 8 Rebar · 9 Block (CMU) · 10 Lumber · 11 Sheet Goods · 12 Area & Volume · 13 Circles & Arcs · 14 Convert
+
+* **Grade & Slope:** *Rise + Run* takes any two of rise, run, grade % or slope ratio (H:1V) and gives grade %, ratio, rise per foot, rise per 100 ft, angle, pitch and slope length.
+  *Elevations* takes three of start elevation, end elevation, distance and grade % (with an Up/Down switch), plus an optional station interval for a grade-stake list (0+00, 0+50…).
+  *Pipe fall* gives total fall and end invert from length and inches-per-foot or %.
+* **Excavation:** trench (sloped sides, pipe backfill), pit/basement (prismoidal, overdig), cut/fill pad (average of up to 4 depths), average end area, and bank/loose/compacted conversion. Truck loads use loose yards.
+* **Gravel & Fill:** tons, yards, truck loads and cost, by area or volume.
+* **Rebar:** slab grid both ways, or continuous footing bars with dowels. Gives LF, stock bars, weight and lap splices.
+* **Block (CMU):** block count, courses, mortar bags and solid grout.
+* **Concrete** gained Wall, Thick-edge slab and Pads, and every concrete result now shows 10-yd truck count.
+
 ## Notes
 
 * Stair checks use IRC R311.7.5: 7-3/4" max riser, 10" min tread. Always confirm against your local code.
 * Rafter and stringer lengths are line lengths. Make your usual deductions (ridge, hip, seat cuts) and buy stock long.
+* Swell/shrink defaults (common earth 25/10, clay 30/15, sand & gravel 12/7, topsoil 43/20, blasted rock 50/−30) are typical book values. Enter your own % when you know the soil.
+* Material weights (tons per cu yd: gravel 1.4, road base 1.5, sand 1.35, fill 1.2, topsoil 1.0, river rock 1.35, asphalt 2.0) are typical loose weights. Ask your supplier for their number and type it in the Tons per cu yd field.
+* Rebar lap defaults to 40 bar diameters, and weights are standard ASTM lb/ft. Follow the engineer's drawings.
+* CMU: 1.125 block per sq ft for an 8×16 face. Grout for solid-grouted walls: 6" 0.167, 8" 0.258, 10" 0.34, 12" 0.42 cu ft per sq ft (typical). Mortar defaults to 12 blocks per 80 lb bag and can be changed.
 * Concrete bag yields assume 0.60 cu ft per 80 lb bag and 0.45 cu ft per 60 lb bag.
