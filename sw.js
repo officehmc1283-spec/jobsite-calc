@@ -1,6 +1,6 @@
 /* Jobsite Calc service worker — caches every file so the app runs with no signal.
  * When you change any app file, bump VERSION so phones pick up the new copy. */
-const VERSION = 'jobsite-calc-v3';
+const VERSION = 'jobsite-calc-v4';
 const FILES = [
   './',
   'index.html',
@@ -16,7 +16,10 @@ const FILES = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's HTTP cache so an update never mixes old and new files.
+  event.waitUntil(caches.open(VERSION)
+    .then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
