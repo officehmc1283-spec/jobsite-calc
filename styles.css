@@ -51,6 +51,8 @@
 /* ---------- base ---------- */
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
+/* No zooming, like any calculator: pinch and double-tap zoom are off everywhere. */
+html, body { touch-action: pan-x pan-y; overscroll-behavior: none; }
 body {
   background: var(--bg);
   color: var(--text);
@@ -103,8 +105,6 @@ body.sheet-open .screen.scroll { padding-bottom: 62vh; }
 }
 .tab svg { width: 24px; height: 24px; }
 .tab.active { color: var(--tab-active); }
-  content: ''; position: absolute; top: -6px; width: 32px; height: 4px; border-radius: 0 0 4px 4px; background: var(--accent);
-}
 
 /* ---------- calculator ---------- */
 .calc {
@@ -113,6 +113,7 @@ body.sheet-open .screen.scroll { padding-bottom: 62vh; }
   flex-direction: column;
   gap: 10px;
   padding: 6px 16px 12px;
+  overflow: hidden;
 }
 .calc-head { display: flex; align-items: center; justify-content: space-between; min-height: 44px; }
 .brand { font: 700 15px/1 var(--cond); letter-spacing: 0.2em; color: var(--muted); }
@@ -139,9 +140,9 @@ body.sheet-open .screen.scroll { padding-bottom: 62vh; }
 .tape li.empty { border-style: dashed; color: var(--faint); cursor: default; font-weight: 500; }
 
 .display {
-  flex: 1 1 auto;
-  min-height: 112px;
-  max-height: 190px;
+  flex: 1 1 110px;          /* shares spare height with the keypad (1 : 3) */
+  min-height: 60px;
+  container-type: size;    /* lets the answer size itself to this box */
   border-radius: 18px;
   background: var(--display);
   border: 1px solid var(--display-line);
@@ -150,13 +151,14 @@ body.sheet-open .screen.scroll { padding-bottom: 62vh; }
   text-align: right;
 }
 .display .expr {
-  font: 500 18px/1.25 var(--sans); color: var(--display-sub); min-height: 23px; word-break: break-word;
+  font: 500 clamp(14px, 2.2dvh, 18px)/1.25 var(--sans); color: var(--display-sub); min-height: 23px; word-break: break-word;
   font-variant-numeric: tabular-nums;
 }
 .display .expr .cursor { display: inline-block; width: 3px; height: 1em; background: var(--accent); vertical-align: -2px; margin-left: 2px; animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 .display .result {
-  font: 600 clamp(40px, 15vw, 64px)/1.05 var(--cond); color: var(--accent); letter-spacing: 0.01em;
+  font: 600 clamp(30px, min(15vw, 7.2dvh), 64px)/1.05 var(--cond); color: var(--accent); letter-spacing: 0.01em;
+  font-size: clamp(24px, min(15vw, 7.2dvh, 46cqh), 64px);   /* never taller than the display */
   white-space: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
 }
 .display .result::-webkit-scrollbar { display: none; }
@@ -187,6 +189,14 @@ body.sheet-open .screen.scroll { padding-bottom: 62vh; }
 .k.eq { border-color: transparent; background: var(--accent); color: var(--accent-fg); font: 600 34px/1 var(--sans); }
 .k.eq.txt { font: 700 20px/1 var(--cond); letter-spacing: 0.05em; }
 .keypad .k.eq { grid-column: span 3; }
+/* The calculator keypad stretches to fill the screen: 6 equal rows, never scrolls. */
+.keypad { flex: 3 1 320px; min-height: 0; max-height: 480px; grid-auto-rows: auto; grid-template-rows: repeat(6, minmax(0, 1fr)); }
+.keypad .k { font-size: clamp(20px, 4dvh, 34px); }
+.keypad .k.op { font-size: clamp(20px, 3.8dvh, 32px); }
+.keypad .k.eq { font-size: clamp(22px, 4.2dvh, 36px); }
+.keypad .k.unit, .keypad .k.txt { font-size: clamp(15px, 2.7dvh, 22px); }
+.keypad .k.sm { font-size: clamp(13px, 2.2dvh, 18px); }
+.keypad .k svg { width: clamp(20px, 3.4dvh, 28px); height: clamp(20px, 3.4dvh, 28px); }
 .k:active { transform: scale(0.96); filter: brightness(1.25); }
 
 .more {
@@ -379,19 +389,34 @@ body.sheet-open .screen.scroll { padding-bottom: 62vh; }
   .sheet { max-width: 520px; margin: 0 auto; }
 }
 
-/* ---------- short phones (iPhone SE / mini) ---------- */
+/* ---------- short phones (iPhone SE / mini, Safari with toolbars) ---------- */
 @media (max-height: 700px) {
-  :root { --key-h: 44px; --gap: 6px; }
-  .calc { gap: 8px; padding-top: 2px; }
-  .display { min-height: 96px; padding: 8px 16px; }
-  .display .result { font-size: 44px; }
-  .display .expr { font-size: 16px; min-height: 20px; }
-  .k { font-size: 28px; }
-  .k.op { font-size: 26px; }
-  .k.eq { font-size: 30px; }
-  .tab { min-height: 46px; }
+  :root { --gap: 6px; }
   .fkeys { --key-h: 46px; }
   .sheet-val { font-size: 36px; }
+  .display { padding: 8px 16px; }
+}
+@media (max-height: 640px) and (orientation: portrait) {
+  /* one row for tape + chips, tighter tab bar: everything still fits */
+  .calc {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 44px minmax(56px, 1fr) 44px minmax(0, 3.4fr);
+    grid-template-areas: "tape chips" "display display" "strip strip" "keys keys";
+    gap: 8px; column-gap: 8px; padding: 4px 12px 8px;
+  }
+  .calc-head { display: contents; }
+  .brand { display: none; }
+  .chips { grid-area: chips; gap: 6px; }
+  .chip { padding: 0 10px; font-size: 15px; }
+  .tape-row { grid-area: tape; min-width: 0; }
+  .tape-label { display: none; }
+  .display { grid-area: display; min-height: 0; }
+  .strip { grid-area: strip; }
+  .keypad { grid-area: keys; max-height: none; gap: 5px; }
+  .tabbar { padding: 3px 8px calc(3px + env(safe-area-inset-bottom)); }
+  .tab { min-height: 44px; gap: 2px; font-size: 11px; }
+  .tab svg { width: 21px; height: 21px; }
 }
 
 /* ---------- landscape phones ---------- */
@@ -401,20 +426,21 @@ body.sheet-open .screen.scroll { padding-bottom: 62vh; }
   .calc {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
-    grid-template-rows: auto auto 1fr auto;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
     column-gap: 14px; row-gap: 6px;
     padding: 6px 12px 8px;
-    --key-h: calc((100dvh - 44px - 8px - 14px - 30px - env(safe-area-inset-bottom) - env(safe-area-inset-top)) / 6);
     --gap: 6px;
   }
   .calc-head { grid-column: 1; grid-row: 1; }
   .tape-row { grid-column: 1; grid-row: 2; }
   .display { grid-column: 1; grid-row: 3; max-height: none; min-height: 0; }
   .strip { grid-column: 1; grid-row: 4; }
-  .keypad { grid-column: 2; grid-row: 1 / 5; align-self: end; }
-  .display .result { font-size: 40px; }
-  .k { font-size: 26px; }
-  .k.unit, .k.txt { font-size: 18px; }
+  .keypad { grid-column: 2; grid-row: 1 / 5; align-self: stretch; max-height: none; }
+  .display .result { font-size: clamp(24px, min(9dvh, 46cqh), 44px); }
+  .keypad .k { font-size: clamp(18px, 6dvh, 28px); }
+  .keypad .k.op { font-size: clamp(18px, 5.6dvh, 26px); }
+  .keypad .k.eq { font-size: clamp(20px, 6.4dvh, 30px); }
+  .keypad .k.unit, .keypad .k.txt { font-size: clamp(14px, 4.2dvh, 18px); }
   .more { left: auto; width: 55%; }
   .sheet {
     left: auto; top: 0; width: min(430px, 56vw); border-radius: 22px 0 0 22px; border-top: 0; border-left: 1px solid var(--line-2);

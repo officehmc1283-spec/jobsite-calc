@@ -63,7 +63,7 @@ python3 -m http.server 8765 &
 node tests/e2e.test.js
 ```
 
-Last run (Sept 24, 2026): unit tests 81/81 passed, phone test 99/99 passed (includes layout checks on iPhone SE, 14 Pro Max and landscape), no JavaScript errors, offline cold start works.
+Last run (Sept 24, 2026): unit tests 81/81 passed, phone test 104/104 passed (includes layout checks on iPhone SE, 14 Pro Max and landscape), no JavaScript errors, offline cold start works.
 
 `tests/stairs.sweep.js` checks the stair tool against independent math for every total rise from 6" to 20' in 1/16" steps (26,215 cases): `node tests/stairs.sweep.js`.
 
@@ -115,6 +115,8 @@ Tape, settings and tool inputs are kept.
 * **Jobs (new):** "Add to job" collects results. A job adds up like items, e.g. all concrete → one order with net, waste and 10-yd truck count. Share or copy the takeoff, rename or delete jobs. Jobs are stored only on the phone.
 * **Fonts:** Barlow and Barlow Condensed ship inside the app (`fonts/`, SIL Open Font License) so the look works offline.
 * Every button is at least 44 px. Layout is checked on iPhone SE, 14 Pro Max and landscape.
+* **Always fits (v8):** the calculator sizes itself to the screen, with display and keypad sharing the height. It's checked on 14 sizes from a 280-px fold cover to an iPad mini, portrait and landscape: nothing scrolls or gets cut off. On short screens the tape and header chips share one row.
+* **No zoom (v8):** pinch-zoom, double-tap zoom and ctrl-zoom are off, like any calculator. Fast double taps on a key still count twice.
 
 ## Notes
 

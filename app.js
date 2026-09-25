@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const C = window.Calc;
-  const APP_VERSION = '7';
+  const APP_VERSION = '8';
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -1637,6 +1637,28 @@
   });
 
   window.addEventListener('hashchange', route);
+
+  // ================================================================ no zoom
+  // A calculator shouldn't zoom. iOS Safari ignores user-scalable=no, so also block
+  // its pinch gestures, two-finger moves and double-tap zoom; block ctrl+wheel / ctrl± on desktop.
+  const stop = (e) => e.preventDefault();
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach((t) => document.addEventListener(t, stop, { passive: false }));
+  document.addEventListener('touchmove', (e) => { if (e.touches.length > 1 || (e.scale && e.scale !== 1)) e.preventDefault(); }, { passive: false });
+  let lastTouchEnd = 0;
+  document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    if (now - lastTouchEnd < 350 && !e.target.closest('input')) {
+      e.preventDefault();                 // stop double-tap zoom…
+      const b = e.target.closest('button, li[data-i], .row[data-v], .hero[data-v]');
+      if (b) b.click();                   // …but keep the second tap working (fast key entry)
+    }
+    lastTouchEnd = now;
+  }, { passive: false });
+  document.addEventListener('dblclick', stop, { passive: false });
+  window.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '0'].indexOf(e.key) >= 0) e.preventDefault();
+  });
 
   // ================================================================ boot
   applyTheme();
