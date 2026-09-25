@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Jobsite Calc</title>
+  <meta name="description" content="Offline feet-inch-fraction construction calculator">
+  <meta name="theme-color" content="#000000">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Jobsite Calc">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="nav" data-go="calc" id="navCalc">Calc</button>
+    <button class="nav" data-go="tools" id="navTools">Tools</button>
+    <button class="nav" data-go="settings" id="navSettings" aria-label="Settings">⚙</button>
+  </header>
+
+  <!-- ============ Calculator ============ -->
+  <main id="screen-calc" class="screen calc" hidden>
+    <div class="tape-wrap">
+      <div class="tape-head">
+        <span>Tape — tap to reuse</span>
+        <button id="clearTape" class="link">Clear</button>
+      </div>
+      <ol id="tape" class="tape"></ol>
+    </div>
+
+    <div class="display" id="display">
+      <div class="expr" id="expr"></div>
+      <div class="result" id="result">0</div>
+      <div class="meta"><span id="modeLabel">FT-IN-FRAC</span><span id="precLabel">1/16"</span></div>
+    </div>
+
+    <div class="keypad" id="keypad">
+      <button data-k="ft" class="k unit">Ft '</button>
+      <button data-k="in" class="k unit">In "</button>
+      <button data-k="/" class="k unit">/</button>
+      <button data-k="bs" class="k fn" aria-label="Backspace">⌫</button>
+      <button data-k="ac" class="k fn">AC</button>
+
+      <button data-k="7" class="k">7</button>
+      <button data-k="8" class="k">8</button>
+      <button data-k="9" class="k">9</button>
+      <button data-k="÷" class="k op">÷</button>
+      <button data-k="yd" class="k unit sm">yd</button>
+
+      <button data-k="4" class="k">4</button>
+      <button data-k="5" class="k">5</button>
+      <button data-k="6" class="k">6</button>
+      <button data-k="×" class="k op">×</button>
+      <button data-k="m" class="k unit sm">m</button>
+
+      <button data-k="1" class="k">1</button>
+      <button data-k="2" class="k">2</button>
+      <button data-k="3" class="k">3</button>
+      <button data-k="−" class="k op">−</button>
+      <button data-k="cm" class="k unit sm">cm</button>
+
+      <button data-k="0" class="k">0</button>
+      <button data-k="." class="k">.</button>
+      <button data-k="conv" class="k fn sm">Conv</button>
+      <button data-k="+" class="k op">+</button>
+      <button data-k="mm" class="k unit sm">mm</button>
+
+      <button data-k="(" class="k fn">(</button>
+      <button data-k=")" class="k fn">)</button>
+      <button data-k="more" class="k fn sm">More</button>
+      <button data-k="=" class="k eq">=</button>
+    </div>
+
+    <div class="more" id="more" hidden>
+      <div class="more-grid">
+        <button data-k="sq ft" class="k unit sm">sq ft</button>
+        <button data-k="sq in" class="k unit sm">sq in</button>
+        <button data-k="sq yd" class="k unit sm">sq yd</button>
+        <button data-k="sq m" class="k unit sm">sq m</button>
+        <button data-k="cu ft" class="k unit sm">cu ft</button>
+        <button data-k="cu yd" class="k unit sm">cu yd</button>
+        <button data-k="cu in" class="k unit sm">cu in</button>
+        <button data-k="cu m" class="k unit sm">cu m</button>
+        <button data-k="√" class="k fn">√</button>
+        <button data-k="²" class="k fn">x²</button>
+        <button data-k="neg" class="k fn">±</button>
+        <button data-k="close" class="k eq sm">Close</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- ============ Tools grid ============ -->
+  <main id="screen-tools" class="screen scroll" hidden>
+    <div class="tiles" id="tiles"></div>
+  </main>
+
+  <!-- ============ Single tool ============ -->
+  <main id="screen-tool" class="screen scroll" hidden>
+    <div class="tool-head">
+      <button class="back" data-go="tools">‹ Tools</button>
+      <h1 id="toolTitle"></h1>
+      <button class="link" id="toolClear">Clear</button>
+    </div>
+    <div id="toolBody"></div>
+  </main>
+
+  <!-- ============ Settings ============ -->
+  <main id="screen-settings" class="screen scroll" hidden>
+    <div id="settingsBody"></div>
+  </main>
+
+  <!-- ============ Field keypad (bottom sheet) ============ -->
+  <div class="sheet" id="sheet" hidden>
+    <div class="sheet-head">
+      <div class="sheet-info">
+        <div class="sheet-label" id="sheetLabel"></div>
+        <div class="sheet-val" id="sheetVal"></div>
+      </div>
+      <button class="k eq sm" data-fk="done">Done</button>
+    </div>
+    <div class="fkeys" id="fkeys">
+      <button data-fk="7" class="k">7</button>
+      <button data-fk="8" class="k">8</button>
+      <button data-fk="9" class="k">9</button>
+      <button data-fk="ft" class="k unit u-only">Ft '</button>
+      <button data-fk="bs" class="k fn" aria-label="Backspace">⌫</button>
+
+      <button data-fk="4" class="k">4</button>
+      <button data-fk="5" class="k">5</button>
+      <button data-fk="6" class="k">6</button>
+      <button data-fk="in" class="k unit u-only">In "</button>
+      <button data-fk="clr" class="k fn sm">Clear</button>
+
+      <button data-fk="1" class="k">1</button>
+      <button data-fk="2" class="k">2</button>
+      <button data-fk="3" class="k">3</button>
+      <button data-fk="/" class="k unit">/</button>
+      <button data-fk="ans" class="k fn sm">Ans</button>
+
+      <button data-fk="0" class="k">0</button>
+      <button data-fk="." class="k">.</button>
+      <button data-fk=" " class="k fn sm">space</button>
+      <button data-fk="+" class="k op">+</button>
+      <button data-fk="next" class="k eq sm">Next</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="calc.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
