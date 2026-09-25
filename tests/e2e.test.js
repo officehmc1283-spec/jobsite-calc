@@ -209,6 +209,50 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     await setField('runLimit', '100');
     has(await outText(), 'under IRC min 10"');
   });
+  await test('Stairs: 9\' 1 1/2" entered with Ft/In keys → 15 risers @ 7-5/16"', async () => {
+    await openTool('stairs');
+    await setField('totalRise', `9' 1 1/2"`);
+    eq(await rowVal('Risers'), '15');
+    eq(await rowVal('Treads'), '14');
+    eq(await rowVal('Riser height'), `7-5/16"`);
+    eq(await rowVal('Tread depth'), `10"`);
+    eq(await rowVal('Total run'), `11' 8"`);
+    eq(await rowVal('Stringer length'), `14' 9-3/4"`);
+    eq(await rowVal('Stringer stock'), `16' board (min.)`);
+    has(await outText(), 'Meets IRC');
+  });
+  await test('Stairs: target riser 7" and 11" tread', async () => {
+    await openTool('stairs');
+    await setField('totalRise', '108'); await setField('riser', '7'); await setField('tread', '11');
+    eq(await rowVal('Risers'), '15');
+    eq(await rowVal('Riser height'), `7-3/16"`);
+    eq(await rowVal('Total run'), `12' 10"`);
+  });
+  await test('Stairs: forcing 12 risers flags the tall riser', async () => {
+    await openTool('stairs');
+    await setField('totalRise', '108'); await setField('risers', '12');
+    has(await outText(), 'exceeds IRC max');
+    eq(await rowVal('Riser height'), `9"`);
+  });
+  await test('Stairs: forcing 0 risers shows an error, not garbage', async () => {
+    await openTool('stairs');
+    await setField('totalRise', '108'); await setField('risers', '0');
+    // 0 counts as blank → auto count
+    eq(await rowVal('Risers'), '14');
+    await setField('risers', '.3');
+    has(await outText(), 'at least 1');
+  });
+  await test('Stairs: blank rise asks for input', async () => {
+    await openTool('stairs');
+    has(await outText(), 'Enter: Total rise');
+  });
+  await test('Stairs: result tap sends riser height to tape', async () => {
+    await openTool('stairs');
+    await setField('totalRise', '108');
+    await page.click('#out .row:has(.r-label:text-is("Riser height"))');
+    await nav('Calc');
+    eq(await tapeLast(), '= 7-11/16"');
+  });
   await shot('05-stairs');
   await test('Concrete slab 20\'×20\'×4" + 10% = 5.43 cu yd', async () => {
     await openTool('concrete', 'slab');

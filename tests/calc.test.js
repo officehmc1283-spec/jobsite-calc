@@ -198,6 +198,17 @@
     near(s.treadDepth, 11); eq(s.ok, true);
   });
   test('stairs: requires rise', () => throws(() => C.stairs({}), /rise/));
+  test('stairs: forced riser count below 1 is rejected', () => throws(() => C.stairs({ totalRise: 108, risers: 0.3 }), /at least 1/));
+  test('stairs: very low risers are flagged', () => {
+    const s = C.stairs({ totalRise: 108, riser: 2 });
+    eq(s.ok, false);
+    if (!/under 4"/.test(s.warnings.join())) throw new Error('no low-riser warning');
+  });
+  test('stairs: 9\' 1-1/2" rise → 15 risers @ 7.3", 14 treads, 140" run', () => {
+    const s = C.stairs({ totalRise: 109.5 });
+    eq(s.risers, 15); eq(s.treads, 14); near(s.riserHeight, 7.3); near(s.totalRun, 140);
+    near(s.stringer, Math.hypot(109.5, 140)); eq(s.ok, true);
+  });
 
   // ---------------------------------------------------------------- concrete
   test('concrete slab 10x10x4" = 1.2346 cu yd', () => {
