@@ -754,6 +754,64 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     has(await page.textContent('#settingsBody'), 'version');
   });
 
+  console.log('\nFits every screen, never zooms');
+  const SIZES = [[320, 568], [375, 667], [375, 548], [375, 812], [390, 844], [393, 852], [430, 932], [360, 640], [412, 915], [280, 653], [844, 390], [667, 375], [750, 342], [744, 1133]];
+  await test('calculator fits with no scrolling or clipping on 14 screen sizes', async () => {
+    const bad = [];
+    for (const [w, h] of SIZES) {
+      const c2 = await browser.newContext({ viewport: { width: w, height: h }, isMobile: true, hasTouch: true });
+      const p2 = await c2.newPage(); await p2.goto(BASE); await p2.waitForSelector('#screen-calc:not([hidden])');
+      const r = await p2.evaluate(() => {
+        const vh = innerHeight, vw = innerWidth, tb = document.querySelector('.tabbar').getBoundingClientRect();
+        let problems = [];
+        document.querySelectorAll('#screen-calc button, #screen-calc .display').forEach((e) => {
+          if (e.closest('[hidden]')) return;
+          const rc = e.getBoundingClientRect();
+          if (rc.bottom > tb.top + 0.5 || rc.right > vw + 0.5 || rc.top < -0.5) problems.push('off-screen ' + (e.textContent || '').trim().slice(0, 6));
+        });
+        const sc = document.querySelector('#screen-calc');
+        if (sc.scrollHeight > sc.clientHeight + 1 || document.documentElement.scrollHeight > vh + 1 || document.documentElement.scrollWidth > vw + 1) problems.push('scrolls');
+        const d = document.querySelector('.display').getBoundingClientRect(), rr = document.querySelector('#result').getBoundingClientRect();
+        if (rr.bottom > d.bottom + 0.5 || rr.top < d.top - 0.5) problems.push('answer cut off');
+        return problems;
+      });
+      if (r.length) bad.push(w + 'x' + h + ': ' + r.join(', '));
+      await c2.close();
+    }
+    eq(bad.join(' | '), '');
+  });
+  await test('keys use the extra height on tall phones', async () => {
+    const c2 = await browser.newContext({ viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true });
+    const p2 = await c2.newPage(); await p2.goto(BASE); await p2.waitForSelector('#screen-calc:not([hidden])');
+    const kh = await p2.$eval('#keypad [data-k="7"]', (e) => e.getBoundingClientRect().height);
+    await c2.close();
+    if (kh < 60) throw new Error('keys only ' + kh + 'px tall on a Pro Max');
+  });
+  await test('zoom is off: viewport locked, pinch/double-tap blocked', async () => {
+    const r = await page.evaluate(() => {
+      const vp = document.querySelector('meta[name="viewport"]').content;
+      const ev = new Event('gesturestart', { cancelable: true }); document.dispatchEvent(ev);
+      const wheel = new WheelEvent('wheel', { ctrlKey: true, cancelable: true }); window.dispatchEvent(wheel);
+      return { vp, touch: getComputedStyle(document.documentElement).touchAction, pinch: ev.defaultPrevented, ctrlWheel: wheel.defaultPrevented };
+    });
+    has(r.vp, 'user-scalable=no'); has(r.vp, 'maximum-scale=1');
+    eq(r.touch, 'pan-x pan-y'); eq(r.pinch, true); eq(r.ctrlWheel, true);
+  });
+  await test('fast repeated finger taps all count and never zoom', async () => {
+    const c2 = await browser.newContext({ ...devices['iPhone 13'] });
+    const p2 = await c2.newPage(); await p2.goto(BASE); await p2.waitForSelector('#screen-calc:not([hidden])');
+    await p2.tap('#keypad [data-k="ac"]');
+    for (const k of ['7', '7', '7', 'ft', '5', '5']) await p2.tap(`#keypad [data-k="${k}"]`);
+    const r = await p2.evaluate(() => ({ expr: document.querySelector('#expr').textContent, scale: window.visualViewport.scale }));
+    await c2.close();
+    eq(r.expr, "777' 55"); eq(r.scale, 1);
+  });
+  await test('stylesheet has no broken rules (calc, display, keypad, tab bar present)', async () => {
+    const sels = await page.evaluate(() => [...document.styleSheets[0].cssRules].map((r) => r.selectorText).filter(Boolean));
+    ['.calc', '.display', '.keypad', '.tabbar', '.tab.active'].forEach((x) => { if (sels.indexOf(x) < 0) throw new Error('missing rule ' + x); });
+    if (sels.some((x) => /[;:]\s*\S+\s*;/.test(x) || /position|content/.test(x))) throw new Error('garbled selector found');
+  });
+
   console.log('\nErrors');
   await test('no JavaScript errors during the run', async () => {
     const real = errors.filter((e) => !/net::ERR_INTERNET_DISCONNECTED|Failed to fetch/.test(e));
