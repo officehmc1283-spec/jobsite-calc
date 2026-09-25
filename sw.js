@@ -1,6 +1,6 @@
 /* Jobsite Calc service worker — caches every file so the app runs with no signal.
  * When you change any app file, bump VERSION so phones pick up the new copy. */
-const VERSION = 'jobsite-calc-v5';
+const VERSION = 'jobsite-calc-v6';
 const FILES = [
   './',
   'index.html',
@@ -12,7 +12,12 @@ const FILES = [
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/icon-maskable-512.png',
-  'icons/apple-touch-icon.png'
+  'icons/apple-touch-icon.png',
+  'fonts/barlow-latin-500-normal.woff2',
+  'fonts/barlow-latin-600-normal.woff2',
+  'fonts/barlow-latin-700-normal.woff2',
+  'fonts/barlow-condensed-latin-600-normal.woff2',
+  'fonts/barlow-condensed-latin-700-normal.woff2'
 ];
 
 self.addEventListener('install', (event) => {

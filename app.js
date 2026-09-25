@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const C = window.Calc;
-  const APP_VERSION = '5';
+  const APP_VERSION = '6';
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -15,7 +15,7 @@
     },
     set(k, v) { try { localStorage.setItem('jsc.' + k, JSON.stringify(v)); } catch (e) { /* storage full or blocked */ } }
   };
-  const settings = Object.assign({ precision: 16, theme: 'light', conv: { 0: 0, 1: 0, 2: 0, 3: 0 } }, store.get('settings', {}));
+  const settings = Object.assign({ precision: 16, theme: 'dark', conv: { 0: 0, 1: 0, 2: 0, 3: 0 } }, store.get('settings', {}));
   const inputs = store.get('inputs', {});   // raw field text, keyed "tool.field"
   const modes = store.get('modes', {});     // selected mode per tool
   let tape = store.get('tape', []);
@@ -37,7 +37,7 @@
 
   function applyTheme() {
     document.documentElement.dataset.theme = settings.theme;
-    $('meta[name="theme-color"]').setAttribute('content', '#000000');
+    $('meta[name="theme-color"]').setAttribute('content', settings.theme === 'light' ? '#ECEAE5' : '#121416');
   }
 
   const buzz = () => { if (navigator.vibrate) navigator.vibrate(8); };
@@ -65,13 +65,28 @@
   function renderTape() {
     const ol = $('#tape');
     if (!tape.length) {
-      ol.innerHTML = '<li class="empty">Results show here. Tap one to reuse it.</li>';
+      ol.innerHTML = '<li class="empty">Results show here</li>';
       return;
     }
-    ol.innerHTML = tape.map((t, i) =>
-      '<li data-i="' + i + '" role="button" tabindex="0"><div class="t-expr">' + esc(t.e) + '</div><div class="t-res">= ' +
-      esc(fmtVal({ v: t.v, d: t.d })) + '</div></li>').join('');
-    ol.scrollTop = ol.scrollHeight;
+    const start = Math.max(0, tape.length - 40);
+    let html = '';
+    for (let i = start; i < tape.length; i++) {
+      const t = tape[i];
+      html += '<li data-i="' + i + '" role="button" tabindex="0" title="' + esc(t.e) + '"' + (i === tape.length - 1 ? ' class="latest"' : '') + '>' +
+        esc(fmtVal({ v: t.v, d: t.d })) + '</li>';
+    }
+    ol.innerHTML = html;
+    ol.scrollLeft = ol.scrollWidth;
+  }
+
+  const SHORT = {
+    num: 'NUMBER', ftin: 'FT-IN', in: 'IN-FRAC', ftdec: 'DEC FT', indec: 'DEC IN', yd: 'YARDS', m: 'METERS', cm: 'CM', mm: 'MM',
+    sqft: 'SQ FT', sqin: 'SQ IN', sqyd: 'SQ YD', sqm: 'SQ M', cuyd: 'CU YD', cuft: 'CU FT', cuin: 'CU IN', cum: 'CU M'
+  };
+  const ALT = { 1: ['ftdec', 'indec'], 2: ['sqyd', 'sqm'], 3: ['cuft', 'cum'] };
+  function altText(val, id) {
+    const m = (C.MODES[val.d] || []).find((x) => x.id === id);
+    return m ? m.fmt(val.v, prec()).toUpperCase() : '';
   }
 
   function currentValue() {
@@ -103,8 +118,12 @@
     }
     const d = val ? val.d : 1;
     const list = C.MODES[d];
-    $('#modeLabel').textContent = list[(settings.conv[d] || 0) % list.length].label;
-    $('#precLabel').textContent = 'PRECISION 1/' + prec() + '"';
+    const mode = list[(settings.conv[d] || 0) % list.length];
+    $('#modeLabel').textContent = SHORT[mode.id] || mode.label;
+    $('#precLabel').textContent = '1/' + prec() + '"';
+    const alts = val && !st.error ? (ALT[d] || []) : [];
+    $('#metaL').textContent = alts[0] ? altText(val, alts[0]) : '';
+    $('#metaR').textContent = alts[1] ? altText(val, alts[1]) : '';
   }
 
   // 7" 3/8 → 7-3/8"  (display only; both forms parse the same)
@@ -230,7 +249,7 @@
   function concreteRows(cuIn, wastePct) {
     const s = C.concreteSummary(cuIn, wastePct);
     return [
-      V('Concrete to order', C.withWaste(cuIn, wastePct), 'cuyd', { big: true }),
+      V('Concrete to order', C.withWaste(cuIn, wastePct), 'cuyd', { big: true, net: cuIn }),
       V('Without waste', cuIn, 'cuyd'),
       N('80 lb bags (0.60 cu ft each)', s.bags80, 0),
       N('60 lb bags (0.45 cu ft each)', s.bags60, 0),
@@ -282,7 +301,7 @@
       id: 'rightangle', title: 'Right Angle', desc: 'Rise · run · diagonal · pitch',
       note: 'Enter any two: two lengths, or one length plus one angle (pitch, degrees or %).',
       modes: [{
-        id: 'main',
+        id: 'main', anyTwo: true,
         fields: [
           len('rise', 'Rise', 'ft'), len('run', 'Run', 'ft'), len('diag', 'Diagonal', 'ft'),
           num('pitch', 'Pitch (x in 12)'), num('deg', 'Angle (degrees)'), num('pct', 'Slope (%)')
@@ -303,7 +322,7 @@
       id: 'grade', title: 'Grade & Slope', desc: 'Rise/run → % grade · elevations · pipe fall',
       modes: [
         {
-          id: 'rr', label: 'Rise + Run',
+          id: 'rr', label: 'Rise + Run', anyTwo: true,
           note: 'Enter any two: rise and run, or one of them plus grade % or slope ratio (H:1V, e.g. 3 for a 3:1 bank).',
           fields: [
             len('rise', 'Rise (or fall)', 'ft'), len('run', 'Run (horizontal)', 'ft'),
@@ -314,7 +333,7 @@
             const names = { rise: 'rise', run: 'run', angle: 'grade' };
             return [
               I('Solved from ' + g.used.map((u) => names[u]).join(' + ') + '.'),
-              N('Grade', g.pct, 2, '%', { big: true }),
+              N('Grade', g.pct, 2, '%', { big: true, sub: C.fmtNum(g.ratio, 2) + ' : 1 slope  ·  ' + C.formatInches(g.inPerFt, prec()) + ' per ft  ·  ' + C.fmtNum(g.deg, 2) + '°' }),
               T('Slope ratio', C.fmtNum(g.ratio, 2) + ' : 1  (H:V)'),
               L('Rise per foot', g.inPerFt, { fmt: 'in' }),
               N('Rise per 100 ft', g.ftPer100, 2, ' ft'),
@@ -883,6 +902,56 @@
   const TOOL = {};
   TOOLS.forEach((t) => { TOOL[t.id] = t; });
 
+  // ================================================================ icons, groups, search words
+  const svg = (inner, cls) => '<svg viewBox="0 0 24 24" aria-hidden="true"' + (cls ? ' class="' + cls + '"' : '') + '>' + inner + '</svg>';
+  const ICON = {
+    rightangle: '<path d="M5 19V5l14 14z"/>',
+    grade: '<path d="M3 19h18M3 19l18-10"/>',
+    rafters: '<path d="M3 13l9-8 9 8M6 11v8h12v-8"/>',
+    stairs: '<path d="M4 20h4v-4h4v-4h4V8h4"/>',
+    concrete: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/>',
+    dirt: '<path d="M3 9h18M6 9v6a3 3 0 003 3h6a3 3 0 003-3V9"/>',
+    gravel: '<circle cx="8" cy="15" r="3"/><circle cx="16" cy="14" r="4"/><circle cx="11" cy="8" r="3"/>',
+    rebar: '<path d="M4 8h16M4 12h16M4 16h16M8 4v16M16 4v16"/>',
+    block: '<path d="M3 7h18v10H3z"/><path d="M3 12h18M9 7v5M15 12v5"/>',
+    lumber: '<rect x="3" y="8" width="18" height="8" rx="1"/><path d="M8 8v8M13 8v8"/>',
+    sheets: '<rect x="5" y="3" width="14" height="18" rx="1"/><path d="M5 12h14"/>',
+    area: '<path d="M4 4h16v16H4z"/><path d="M4 4l16 16"/>',
+    circles: '<circle cx="12" cy="12" r="8"/><path d="M12 12h8"/>',
+    convert: '<path d="M5 8h13l-3-3M19 16H6l3 3"/>'
+  };
+  const JOB_ICON = '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v3H9zM9 11h6M9 15h4"/>';
+  const CHEV = svg('<path d="M9 6l6 6-6 6"/>', 'chev');
+  const PLUS = svg('<path d="M12 5v14M5 12h14"/>');
+  const SHARE = svg('<path d="M12 4v11M8 8l4-4 4 4M5 14v5h14v-5"/>');
+  const LIST_ICON = svg('<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>');
+  const ARROW = svg('<path d="M5 12h14M13 6l6 6-6 6"/>');
+  const XICON = svg('<path d="M6 6l12 12M18 6L6 18"/>');
+  const GROUPS = [
+    ['Sitework', ['grade', 'dirt', 'gravel']],
+    ['Concrete & Masonry', ['concrete', 'rebar', 'block']],
+    ['Framing', ['rightangle', 'rafters', 'stairs', 'lumber', 'sheets']],
+    ['Geometry & Units', ['area', 'circles', 'convert']]
+  ];
+  const KEYWORDS = {
+    rightangle: 'pythagorean diagonal square triangle hypotenuse',
+    grade: 'slope percent elevation station pipe sewer drain invert fall',
+    rafters: 'roof pitch hip valley jack common birdsmouth',
+    stairs: 'stair riser tread stringer irc code',
+    concrete: 'slab footing wall pad pier sonotube tube steps ready mix truck yards',
+    dirt: 'excavation trench dig pit basement cut fill swell shrink truck loads dirt earthwork',
+    gravel: 'gravel rock base tons fill sand asphalt',
+    rebar: 'steel bar reinforcing lap dowel',
+    block: 'cmu masonry mortar grout',
+    lumber: 'board feet studs plates framing',
+    sheets: 'drywall plywood osb sheathing subfloor',
+    area: 'area volume square footage',
+    circles: 'circle arc radius chord',
+    convert: 'units metric conversion'
+  };
+  let recent = store.get('recent', []);
+
+  // ================================================================ fields
   const currentMode = (tool) => tool.modes.find((m) => m.id === modes[tool.id]) || tool.modes[0];
   const fieldKey = (toolId, f) => toolId + '.' + f.id;
 
@@ -908,19 +977,24 @@
     return val.v;
   }
 
-  function placeholderOf(f) {
+  function defaultText(f) {
     const def = defaultOf(f);
-    if (def != null) {
-      const txt = f.kind === 'len' ? fmtLen(def * C.IN[f.unit], f.unit === 'in' ? 'in' : 'ftin') : C.fmtNum(def, 3);
-      return txt + ' (default)';
-    }
-    return f.req ? 'tap to enter' : 'optional';
+    if (def == null) return null;
+    return f.kind === 'len' ? fmtLen(def * C.IN[f.unit], f.unit === 'in' ? 'in' : 'ftin') : C.fmtNum(def, 3);
   }
+  function placeholderOf(f) { const d = defaultText(f); return d != null ? d : '—'; }
+  function unitOf(f) {
+    if (f.kind === 'len') return f.unit.toUpperCase();
+    if (/%$/.test(f.label)) return '%';
+    return '';
+  }
+  const displayName = (f) => unitOf(f) === '%' ? f.label.replace(/\s*%$/, '') : f.label;
 
   function fieldHint(f) {
     const parts = [];
     if (f.kind === 'len') parts.push('no unit = ' + (f.unit === 'ft' ? 'feet' : 'inches'));
     if (f.hint) parts.push(f.hint);
+    else if (!f.req && defaultOf(f) == null) parts.push('optional');
     return parts.join(' · ');
   }
 
@@ -928,39 +1002,51 @@
     const key = fieldKey(toolId, f);
     if (f.kind === 'choice') {
       const cur = inputs[key] || f.def;
-      return '<div class="choice"><div class="choice-label">' + esc(f.label) + '</div><div class="seg">' +
-        f.options.map(([val, lab]) => '<button data-choice="' + esc(key) + '" data-val="' + esc(val) + '" class="' + (val === cur ? 'on' : '') + '">' + esc(lab) + '</button>').join('') +
+      return '<div class="choice"><div class="choice-label">' + esc(f.label) + '</div><div class="opts">' +
+        f.options.map(([val, lab]) => '<button data-choice="' + esc(key) + '" data-val="' + esc(val) + '" class="' + (val === cur ? 'on' : '') + '" aria-pressed="' + (val === cur) + '">' + esc(lab) + '</button>').join('') +
         '</div></div>';
     }
-    const hint = fieldHint(f);
+    const unit = unitOf(f);
     return '<button class="field" data-key="' + esc(key) + '" data-tool="' + esc(toolId) + '" data-field="' + esc(f.id) + '">' +
-      '<span><span class="f-label">' + esc(f.label) + '</span>' + (hint ? '<span class="f-hint">' + esc(hint) + '</span>' : '') + '</span>' +
-      '<span class="f-val"></span></button>';
+      '<span class="f-label"><span class="f-name">' + esc(displayName(f)) + '</span>' + (f.hint ? '<span class="f-hint">' + esc(f.hint) + '</span>' : '') + '</span>' +
+      '<span class="f-val"></span>' + (unit ? '<span class="unit-chip">' + esc(unit) + '</span>' : '') + '</button>';
   }
 
   function paintField(el, f) {
     const raw = (inputs[el.dataset.key] || '').trim();
     const v = $('.f-val', el);
-    if (raw) { v.textContent = raw; v.classList.remove('placeholder'); }
-    else { v.textContent = placeholderOf(f); v.classList.add('placeholder'); }
+    v.classList.remove('placeholder', 'default');
+    const chip = $('.unit-chip', el);
+    if (chip) chip.hidden = /['"a-z]/i.test(raw);   // a typed unit wins over the default unit
+    if (raw) { v.textContent = raw; return; }
+    const d = defaultText(f);
+    v.textContent = d != null ? d : '—';
+    v.classList.add(d != null ? 'default' : 'placeholder');
   }
 
+  // ================================================================ tool screen
   let curToolId = null;
+  let curRows = [];
+  let heroIndex = -1;
 
   function renderTool(id) {
     const tool = TOOL[id];
     if (!tool) return showScreen('tools');
     curToolId = id;
+    recent = [id].concat(recent.filter((x) => x !== id && TOOL[x])).slice(0, 3);
+    store.set('recent', recent);
     const mode = currentMode(tool);
     $('#toolTitle').textContent = tool.title;
     let html = '';
     if (tool.modes.length > 1) {
-      html += '<div class="seg modes">' + tool.modes.map((m) =>
-        '<button data-mode="' + m.id + '" class="' + (m === mode ? 'on' : '') + '">' + esc(m.label) + '</button>').join('') + '</div>';
+      html += '<div class="' + (tool.modes.length <= 3 ? 'seg' : 'pills') + ' modes" role="tablist" aria-label="Mode">' + tool.modes.map((m) =>
+        '<button role="tab" aria-selected="' + (m === mode) + '" data-mode="' + m.id + '" class="' + (m === mode ? 'on' : '') + '">' + esc(m.label) + '</button>').join('') + '</div>';
     }
+    html += '<div class="out" id="outHero"></div>';
+    html += '<h2 class="label">' + (mode.anyTwo ? 'Enter any two' : 'Inputs') + '</h2>';
     html += '<div class="fields">' + mode.fields.map((f) => fieldHTML(id, f)).join('') + '</div>';
     html += '<div class="out" id="out"></div>';
-    html += '<p class="tap-note">Tap a result to send it to the calculator tape.</p>';
+    html += '<p class="tap-note">Tap any result to send it to the calculator tape.</p>';
     const note = mode.note || tool.note;
     if (note) html += '<p class="note">' + esc(note) + '</p>';
     $('#toolBody').innerHTML = html;
@@ -968,10 +1054,13 @@
     computeTool();
   }
 
+  const hasValue = (r) => r.len != null || r.area != null || r.vol != null || r.num != null || r.fixed != null || r.text != null;
+
   function computeTool() {
     const tool = TOOL[curToolId];
     if (!tool) return;
     const mode = currentMode(tool);
+    const heroEl = $('#outHero');
     const out = $('#out');
     const vals = {};
     const missing = [];
@@ -981,10 +1070,10 @@
       if (el) el.classList.remove('bad');
       try {
         vals[f.id] = readField(tool.id, f);
-        if (vals[f.id] == null && f.req) missing.push(f.label);
+        if (vals[f.id] == null && f.req) missing.push(displayName(f));
       } catch (e) {
         if (el) el.classList.add('bad');
-        if (!problem) problem = f.label + ': ' + (e.message === 'Incomplete entry' ? 'finish the entry' : e.message);
+        if (!problem) problem = displayName(f) + ': ' + (e.message === 'Incomplete entry' ? 'finish the entry' : e.message);
       }
     });
     let rows;
@@ -993,22 +1082,29 @@
       if (missing.length) throw new Error('Enter: ' + missing.join(', '));
       rows = mode.compute(vals);
     } catch (e) {
-      out.innerHTML = '<div class="hint-box">' + esc(e.message) + '</div>';
-      out._rows = [];
+      const bad = !!problem || !missing.length;
+      heroEl.innerHTML = '<div class="hero empty"><div class="hint' + (bad ? ' bad' : '') + '">' + esc(e.message) + '</div></div>';
+      out.innerHTML = '';
+      curRows = [];
+      heroIndex = -1;
       return;
     }
-    out._rows = rows;
-    out.innerHTML = rows.map(rowHTML).join('');
+    curRows = rows;
+    heroIndex = rows.findIndex((r) => r.big && hasValue(r));
+    if (heroIndex < 0) heroIndex = rows.findIndex(hasValue);
+    let notes = '', tiles = '', infos = '';
+    rows.forEach((r, i) => {
+      if (i === heroIndex) return;
+      if (r.warn || r.ok) notes += noteHTML(r);
+      else if (r.info) infos += noteHTML(r);
+      else tiles += rowHTML(r, i);
+    });
+    heroEl.innerHTML = (heroIndex >= 0 ? heroHTML(rows[heroIndex], heroIndex) : '') + notes;
+    out.innerHTML = tiles + infos;
   }
 
-  function rowHTML(r, i) {
-    if (r.warn) return '<div class="row warn">' + esc(r.warn) + '</div>';
-    if (r.ok) return '<div class="row ok">' + esc(r.ok) + '</div>';
-    if (r.info) return '<div class="row info">' + esc(r.info) + '</div>';
-    if (r.list) {
-      return '<div class="row list"><div class="r-label">' + esc(r.label) + '</div>' +
-        (r.list.length ? '<ol>' + r.list.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol>' : '<div class="r-sub">None at this spacing</div>') + '</div>';
-    }
+  // Display text for one result row: { val, sub, tap }
+  function rowParts(r) {
     let val, sub = '', tap = null;
     if (r.len != null) {
       const v = r.len;
@@ -1045,15 +1141,234 @@
     } else {
       val = r.text;
     }
-    return '<div class="row' + (r.big ? ' big' : '') + '"' + (tap ? ' data-v="' + tap.v + '" data-d="' + tap.d + '" data-i="' + i + '" role="button" tabindex="0"' : '') + '>' +
-      '<div class="r-label">' + esc(r.label) + '</div><div class="r-val">' + esc(val) + '</div>' +
-      (sub ? '<div class="r-sub">' + esc(sub) + '</div>' : '') + '</div>';
+    if (r.sub) sub = r.sub;
+    return { val, sub, tap };
+  }
+  const tapAttrs = (tap, i) => tap ? ' data-v="' + tap.v + '" data-d="' + tap.d + '" data-i="' + i + '" role="button" tabindex="0"' : '';
+
+  function heroHTML(r, i) {
+    const p = rowParts(r);
+    return '<div class="hero"' + tapAttrs(p.tap, i) + '>' +
+      '<div class="r-label">' + esc(r.label) + '</div><div class="r-val">' + esc(p.val) + '</div>' +
+      (p.sub ? '<div class="r-sub">' + esc(p.sub) + '</div>' : '') +
+      (p.tap ? '<div class="hero-actions"><button data-act="job">' + PLUS + 'Add to job</button><button data-act="tape">' + LIST_ICON + 'Send to tape</button></div>' : '') +
+      '</div>';
   }
 
-  function renderTiles() {
-    $('#tiles').innerHTML = TOOLS.map((t, i) =>
-      '<button class="tile" data-tool-open="' + t.id + '"><span class="num">' + (i + 1) + '</span>' +
-      '<span class="name">' + esc(t.title) + '</span><span class="desc">' + esc(t.desc) + '</span></button>').join('');
+  function noteHTML(r) {
+    const kind = r.warn ? 'warn' : r.ok ? 'ok' : 'info';
+    return '<div class="note-row ' + kind + '">' + esc(r.warn || r.ok || r.info) + '</div>';
+  }
+
+  function rowHTML(r, i) {
+    if (r.list) {
+      return '<div class="row list"><div class="r-label">' + esc(r.label) + '</div>' +
+        (r.list.length ? '<ol>' + r.list.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol>' : '<div class="r-sub">None at this spacing</div>') + '</div>';
+    }
+    const p = rowParts(r);
+    const wide = String(p.val).length > 13 || r.text != null;
+    return '<div class="row' + (wide ? ' wide' : '') + (r.big ? ' big' : '') + '"' + tapAttrs(p.tap, i) + '>' +
+      '<div class="r-label">' + esc(r.label) + '</div><div class="r-val">' + esc(p.val) + '</div>' +
+      (p.sub ? '<div class="r-sub">' + esc(p.sub) + '</div>' : '') + '</div>';
+  }
+
+  // ================================================================ tools list
+  function renderTools() {
+    const q = ($('#toolSearch').value || '').trim().toLowerCase();
+    const match = (t) => !q || (t.title + ' ' + t.desc + ' ' + (KEYWORDS[t.id] || '')).toLowerCase().indexOf(q) >= 0;
+    let html = '';
+    const rec = recent.filter((id) => TOOL[id]);
+    if (!q && rec.length) {
+      html += '<h2 class="label">Recent</h2><div class="recent">' + rec.map((id) =>
+        '<button class="recent-card" data-tool-open="' + id + '">' + svg(ICON[id]) + '<span>' + esc(TOOL[id].title) + '</span></button>').join('') + '</div>';
+    }
+    let any = false;
+    GROUPS.forEach(([name, ids]) => {
+      const ts = ids.map((id) => TOOL[id]).filter(match);
+      if (!ts.length) return;
+      any = true;
+      html += '<h2 class="label">' + esc(name) + '</h2><div class="list">' + ts.map((t) =>
+        '<button class="tool-row" data-tool-open="' + t.id + '"><span class="ico">' + svg(ICON[t.id]) + '</span>' +
+        '<span class="names"><span class="n">' + esc(t.title) + '</span><span class="d">' + esc(t.desc) + '</span></span>' + CHEV + '</button>').join('') + '</div>';
+    });
+    if (!any) html += '<p class="no-match">No tools match “' + esc(q) + '”.</p>';
+    $('#tiles').innerHTML = html;
+  }
+
+  // ================================================================ jobs
+  let jobs = store.get('jobs', []);
+  let activeJob = store.get('activeJob', null);
+  let curJobId = null;
+  const saveJobs = () => { store.set('jobs', jobs); store.set('activeJob', activeJob); };
+  const jobById = (id) => jobs.find((j) => j.id === id);
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+
+  function whenText(t) {
+    const d = new Date(t);
+    if (d.toDateString() === new Date().toDateString()) return 'today';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+
+  function createJob(name) {
+    const j = { id: newId(), name, items: [], updated: Date.now() };
+    jobs.unshift(j);
+    activeJob = j.id;
+    saveJobs();
+    return j;
+  }
+
+  function askNewJob() {
+    const name = prompt('Name this job', 'Job ' + (jobs.length + 1));
+    if (name == null) return null;
+    return createJob(name.trim() || 'Job ' + (jobs.length + 1));
+  }
+
+  function inputSummary(tool, mode) {
+    const parts = [];
+    mode.fields.forEach((f) => {
+      if (f.kind === 'choice') {
+        const cur = readField(tool.id, f);
+        const opt = f.options.find((o) => o[0] === cur);
+        if (opt && f.options.length > 1) parts.push(opt[1]);
+        return;
+      }
+      const typed = (inputs[fieldKey(tool.id, f)] || '').trim();
+      if (!typed && /^(qty|waste|swaste|bwaste|truck|trk|perBag|stock)$/.test(f.id)) return;  // routine defaults
+      let v;
+      try { v = readField(tool.id, f); } catch (e) { return; }
+      if (v == null) return;
+      const t = f.kind === 'len' ? fmtLen(v, f.unit === 'in' ? 'in' : 'ftin').replace(/' 0"$/, "'") : f.kind === 'any' ? fmtVal(v) : C.fmtNum(v, 3) + (unitOf(f) === '%' ? '%' : '');
+      parts.push(displayName(f) + ' ' + t);
+    });
+    return parts.join(' · ');
+  }
+
+  const ROW_KEYS = ['label', 'len', 'area', 'vol', 'unit', 'num', 'dec', 'suffix', 'fmt'];
+  function plainRow(r) {
+    const o = {};
+    ROW_KEYS.forEach((k) => { if (r[k] != null) o[k] = r[k]; });
+    return o;
+  }
+  const rowKind = (r) => r.len != null ? 'len' : r.area != null ? 'area' : r.vol != null ? 'vol' : r.num != null ? 'num' : null;
+
+  function addHeroToJob() {
+    const tool = TOOL[curToolId];
+    const r = curRows[heroIndex];
+    if (!tool || !r || !rowKind(r)) return;
+    const mode = currentMode(tool);
+    let job = jobById(activeJob);
+    if (!job) job = askNewJob();
+    if (!job) return;
+    job.items.push({
+      id: newId(), tool: tool.id,
+      title: tool.modes.length > 1 ? tool.title + ' — ' + mode.label : tool.title,
+      row: plainRow(r), desc: inputSummary(tool, mode), net: r.net != null ? r.net : null
+    });
+    job.updated = Date.now();
+    saveJobs();
+    buzz();
+    toast('Added to ' + job.name);
+  }
+
+  function jobGroups(job) {
+    const groups = [];
+    job.items.forEach((it) => {
+      const r = it.row, kind = rowKind(r);
+      if (!kind) return;
+      const key = [it.tool, r.label, kind, r.unit || '', r.suffix || ''].join('|');
+      let g = groups.find((x) => x.key === key);
+      if (!g) { g = { key, tool: it.tool, row: Object.assign({}, r), kind, sum: 0, net: 0, hasNet: true, count: 0 }; groups.push(g); }
+      g.sum += r[kind];
+      g.count++;
+      if (it.net != null) g.net += it.net; else g.hasNet = false;
+      g.row[kind] = g.sum;
+    });
+    return groups;
+  }
+
+  function renderJobs() {
+    let html = '<button class="btn-primary" data-act="newjob">' + PLUS + 'NEW JOB</button>';
+    if (!jobs.length) {
+      html += '<div class="empty-state" style="margin-top:12px">No jobs yet. A job collects results from any tool — every slab, footing and pad — and adds them up into one order.</div>';
+    } else {
+      html += '<h2 class="label">Your jobs</h2><div class="list">' + jobs.map((j) =>
+        '<button class="tool-row" data-job-open="' + j.id + '"><span class="ico">' + svg(JOB_ICON) + '</span>' +
+        '<span class="names"><span class="n">' + esc(j.name) + '</span><span class="d">' + plural(j.items.length, 'item') + ' · updated ' + whenText(j.updated) + '</span></span>' +
+        (j.id === activeJob ? '<span class="badge">ACTIVE</span>' : '') + CHEV + '</button>').join('') + '</div>';
+      html += '<p class="note">“Add to job” on any tool result goes to the active job. Open a job to make it active.</p>';
+    }
+    $('#jobsBody').innerHTML = html;
+  }
+
+  function renderJob(id) {
+    const job = jobById(id);
+    if (!job) return showScreen('jobs');
+    curJobId = id;
+    if (activeJob !== id) { activeJob = id; saveJobs(); }
+    $('#jobTitle').textContent = job.name;
+    let html = '<div class="sub-line">' + plural(job.items.length, 'item') + ' · updated ' + whenText(job.updated) + ' · active</div>';
+    const groups = jobGroups(job);
+    if (!job.items.length) {
+      html += '<div class="empty-state">No items yet. Open a tool, get a result, and tap <b>Add to job</b>.</div>';
+    } else {
+      html += '<div class="out">';
+      groups.forEach((g, gi) => {
+        const p = rowParts(g.row);
+        if (gi === 0) {
+          html += '<div class="hero"><div class="r-label">' + esc(g.row.label) + '</div><div class="r-val">' + esc(p.val) + '</div>' +
+            '<div class="r-sub">Total of ' + plural(g.count, 'item') + '</div>';
+          if (g.tool === 'concrete' && g.kind === 'vol' && g.hasNet && g.net > 0) {
+            const yd = g.sum / C.CUYD;
+            html += '<div class="mini"><div><span>Net</span><span>' + C.fmtNum(g.net / C.CUYD, 2) + ' yd</span></div>' +
+              '<div><span>Waste</span><span>' + C.fmtNum((g.sum / g.net - 1) * 100, 1) + '%</span></div>' +
+              '<div><span>Trucks</span><span>' + Math.ceil(yd / 10 - C.EPS) + ' @ 10 yd</span></div></div>';
+          }
+          html += '</div>';
+        } else {
+          html += '<div class="row wide"><div class="r-label">Total · ' + esc(g.row.label) + '</div><div class="r-val">' + esc(p.val) + '</div><div class="r-sub">' + plural(g.count, 'item') + '</div></div>';
+        }
+      });
+      html += '</div><h2 class="label">Items</h2><div class="list">' + job.items.map((it) =>
+        '<div class="item-row"><span class="names"><span class="n">' + esc(it.title) + '</span><span class="d">' + esc(it.desc || '') + '</span></span>' +
+        '<span class="v">' + esc(rowParts(it.row).val) + '</span>' +
+        '<button class="icon-btn" data-remove="' + it.id + '" aria-label="Remove ' + esc(it.title) + '">' + XICON + '</button></div>').join('') + '</div>';
+    }
+    html += '<div class="stack">' +
+      '<button class="btn-outline" data-go="tools">' + PLUS + 'Add item from a tool</button>' +
+      (job.items.length ? '<button class="btn-primary" id="jobShare2">' + SHARE + 'SEND ORDER / TAKEOFF</button>' : '') +
+      '<button class="btn-wide" id="jobRename">Rename job</button>' +
+      '<button class="btn-wide danger" id="jobDelete">Delete job</button></div>';
+    $('#jobBody').innerHTML = html;
+  }
+
+  function takeoffText(job) {
+    const lines = [job.name + ' — takeoff', ''];
+    job.items.forEach((it) => lines.push('• ' + it.title + ': ' + rowParts(it.row).val + (it.desc ? '  (' + it.desc + ')' : '')));
+    const groups = jobGroups(job);
+    if (groups.length) lines.push('');
+    groups.forEach((g) => {
+      let t = 'TOTAL ' + g.row.label + ': ' + rowParts(g.row).val;
+      if (g.tool === 'concrete' && g.kind === 'vol' && g.hasNet && g.net > 0) {
+        t += ' — ' + Math.ceil(g.sum / C.CUYD / 10 - C.EPS) + ' trucks @ 10 yd, net ' + C.fmtNum(g.net / C.CUYD, 2) + ' cu yd';
+      }
+      lines.push(t);
+    });
+    lines.push('', 'Jobsite Calc');
+    return lines.join('\n');
+  }
+
+  function shareJob() {
+    const job = jobById(curJobId);
+    if (!job || !job.items.length) return;
+    const text = takeoffText(job);
+    if (navigator.share) {
+      navigator.share({ title: job.name + ' takeoff', text }).catch(() => { /* cancelled */ });
+    } else if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => toast('Takeoff copied'), () => toast('Could not copy'));
+    } else {
+      toast('Sharing not available here');
+    }
   }
 
   // ================================================================ settings screen
@@ -1065,31 +1380,38 @@
   function renderSettings() {
     curToolId = null;
     const precBtns = [2, 4, 8, 16, 32, 64].map((p) =>
-      '<button data-prec="' + p + '" class="' + (p === prec() ? 'on' : '') + '">1/' + p + '</button>').join('');
-    const themeBtns = [['light', '☀ Sun (light)'], ['dark', '☾ Night (dark)']].map(([v, l]) =>
-      '<button data-theme-set="' + v + '" class="' + (settings.theme === v ? 'on' : '') + '">' + l + '</button>').join('');
+      '<button data-prec="' + p + '" class="' + (p === prec() ? 'on' : '') + '" aria-pressed="' + (p === prec()) + '">1/' + p + '"</button>').join('');
+    const themeBtns = [['dark', 'Graphite (night)'], ['light', 'Daylight (sun)']].map(([v, l]) =>
+      '<button data-theme-set="' + v + '" class="' + (settings.theme === v ? 'on' : '') + '" aria-pressed="' + (settings.theme === v) + '">' + l + '</button>').join('');
     const sw = 'serviceWorker' in navigator && navigator.serviceWorker.controller;
     $('#settingsBody').innerHTML =
-      '<div class="set-group"><h2>Fraction precision</h2><div class="seg grid3">' + precBtns + '</div>' +
+      '<div class="set-group"><h2 class="label">Fraction precision</h2><div class="grid3">' + precBtns + '</div>' +
       '<p>Results round to the nearest 1/' + prec() + '". Math is done at full precision.</p></div>' +
-      '<div class="set-group"><h2>Display</h2><div class="seg">' + themeBtns + '</div></div>' +
-      '<div class="set-group"><h2>Default waste</h2><div class="fields">' +
+      '<div class="set-group"><h2 class="label">Look</h2><div class="grid2">' + themeBtns + '</div>' +
+      '<p>Daylight is easier to read in direct sun.</p></div>' +
+      '<div class="set-group"><h2 class="label">Default waste</h2><div class="fields">' +
       SETTINGS_FIELDS.map((f) => fieldHTML('settings', f)).join('') + '</div>' +
       '<p>Used when a tool\'s own waste % is left blank.</p></div>' +
-      '<div class="set-group"><h2>Data</h2>' +
+      '<div class="set-group"><h2 class="label">Data</h2><div class="stack" style="margin-top:0">' +
       '<button class="btn-wide" id="resetInputs">Clear all tool inputs</button>' +
-      '<button class="btn-wide danger" id="clearTape2">Clear calculator tape (' + tape.length + ')</button></div>' +
-      '<div class="set-group"><h2>Offline</h2><p>' + (sw ? '✓ Saved for offline use. Works with no signal.' : 'Not cached yet. Open once over https (e.g. GitHub Pages) and reload to enable offline use.') + '</p></div>' +
+      '<button class="btn-wide danger" id="clearTape2">Clear calculator tape (' + tape.length + ')</button></div></div>' +
+      '<div class="set-group"><h2 class="label">Offline</h2><p style="margin-top:0">' + (sw ? '✓ Saved for offline use. Works with no signal.' : 'Not cached yet. Open once over https (e.g. GitHub Pages) and reload to enable offline use.') + '</p></div>' +
       '<p class="about">Jobsite Calc · version ' + APP_VERSION + '</p>';
     $$('.field', $('#settingsBody')).forEach((el) => paintField(el, SETTINGS_FIELDS.find((f) => f.id === el.dataset.field)));
   }
 
-  // ================================================================ field keypad sheet
-  let active = null; // { el, key, f }
+  // ================================================================ measurement entry sheet
+  let active = null; // { el, key, f, toolId }
 
   function fieldDef(toolId, fieldId) {
     if (toolId === 'settings') return SETTINGS_FIELDS.find((f) => f.id === fieldId);
     return currentMode(TOOL[toolId]).fields.find((f) => f.id === fieldId);
+  }
+
+  function nextField() {
+    if (!active) return null;
+    const all = $$('.field', active.el.closest('.screen'));
+    return all[all.indexOf(active.el) + 1] || null;
   }
 
   function openSheet(el) {
@@ -1102,12 +1424,13 @@
     sheet.classList.toggle('no-units', f.kind === 'num');
     document.body.classList.add('sheet-open');
     paintSheet();
-    // keep the field visible above the sheet
+    // keep the field in view above (or beside) the sheet
     requestAnimationFrame(() => {
       const scroller = el.closest('.screen');
       const r = el.getBoundingClientRect();
-      const sheetTop = sheet.getBoundingClientRect().top;
-      if (r.bottom > sheetTop - 12 || r.top < 60) scroller.scrollTop += r.top - 90;
+      const s = sheet.getBoundingClientRect();
+      const coveredBelow = s.top > 0 && s.left <= r.left + 1;
+      if ((coveredBelow && r.bottom > s.top - 12) || r.top < 70) scroller.scrollTop += r.top - 150;
     });
   }
 
@@ -1120,20 +1443,23 @@
 
   function paintSheet() {
     if (!active) return;
-    $('#sheetLabel').textContent = active.f.label + (fieldHint(active.f) ? ' — ' + fieldHint(active.f) : '');
+    $('#sheetLabel').textContent = displayName(active.f);
+    $('#sheetHint').textContent = fieldHint(active.f);
     const raw = inputs[active.key] || '';
     const v = $('#sheetVal');
     v.textContent = raw || placeholderOf(active.f);
     v.classList.toggle('placeholder', !raw);
+    const nx = nextField();
+    const nf = nx ? fieldDef(nx.dataset.tool, nx.dataset.field) : null;
+    $('#nextKey').innerHTML = nf ? '<span class="next-t">NEXT: ' + esc(displayName(nf).toUpperCase()) + '</span>' + ARROW : 'DONE';
   }
 
   function fieldKeyPress(k) {
     if (!active) return;
     if (k === 'done') return closeSheet();
     if (k === 'next') {
-      const all = $$('.field', active.el.closest('.screen'));
-      const next = all[all.indexOf(active.el) + 1];
-      return next ? openSheet(next) : closeSheet();
+      const nx = nextField();
+      return nx ? openSheet(nx) : closeSheet();
     }
     let s = inputs[active.key] || '';
     if (k === 'bs') s = s.replace(/\s+$/, '').slice(0, -1).replace(/ \+$/, '');
@@ -1145,7 +1471,7 @@
     else if (k === 'ans') {
       if (!st.last) { toast('No calculator result yet'); return; }
       if (active.f.kind === 'num' && st.last.d !== 0) { toast('Last result has units'); return; }
-      s = (s && !/[\s+]$/.test(s) ? '' : s) + fmtVal(st.last);
+      s = (s && !/[\s+]$/.test(s) ? '' : s) + fmtVal(st.last).replace(/,/g, '');
     } else s += k;
     s = s.replace(/^\s+/, '');
     if (s) inputs[active.key] = s; else delete inputs[active.key];
@@ -1157,10 +1483,12 @@
   }
 
   // ================================================================ navigation
+  const SCREENS = ['calc', 'tools', 'tool', 'jobs', 'job', 'settings'];
+
   function showScreen(name, arg) {
     closeSheet();
     $('#more').hidden = true;
-    const target = name === 'tool' ? '#/t/' + arg : '#/' + name;
+    const target = name === 'tool' ? '#/t/' + arg : name === 'job' ? '#/j/' + arg : '#/' + name;
     if (location.hash !== target) { location.hash = target; return; }
     route();
   }
@@ -1170,21 +1498,28 @@
     const [a, b] = h.split('/');
     let screen = a;
     if (a === 't' && TOOL[b]) screen = 'tool';
-    else if (['calc', 'tools', 'settings'].indexOf(a) < 0) screen = 'calc';
+    else if (a === 'j' && jobById(b)) screen = 'job';
+    else if (SCREENS.indexOf(a) < 0 || a === 'tool' || a === 'job') screen = 'calc';
     closeSheet();
-    ['calc', 'tools', 'tool', 'settings'].forEach((s) => { $('#screen-' + s).hidden = s !== screen; });
-    $('#navCalc').classList.toggle('active', screen === 'calc');
-    $('#navTools').classList.toggle('active', screen === 'tools' || screen === 'tool');
-    $('#navSettings').classList.toggle('active', screen === 'settings');
+    $('#more').hidden = true;
+    SCREENS.forEach((s) => { $('#screen-' + s).hidden = s !== screen; });
+    const tab = screen === 'tool' ? 'tools' : screen === 'job' ? 'jobs' : screen;
+    [['calc', '#navCalc'], ['tools', '#navTools'], ['jobs', '#navJobs'], ['settings', '#navSettings']].forEach(([n, sel]) => {
+      $(sel).classList.toggle('active', tab === n);
+      if (tab === n) $(sel).setAttribute('aria-current', 'page'); else $(sel).removeAttribute('aria-current');
+    });
+    if (screen !== 'tool') curToolId = null;
     if (screen === 'calc') { renderTape(); renderCalc(); }
-    if (screen === 'tools') { curToolId = null; renderTiles(); }
+    if (screen === 'tools') renderTools();
     if (screen === 'tool') { renderTool(b); $('#screen-tool').scrollTop = 0; }
+    if (screen === 'jobs') renderJobs();
+    if (screen === 'job') { renderJob(b); $('#screen-job').scrollTop = 0; }
     if (screen === 'settings') renderSettings();
   }
 
   // ================================================================ events
   document.addEventListener('click', (ev) => {
-    const t = ev.target.closest('button, li[data-i], .row[data-v]');
+    const t = ev.target.closest('button, li[data-i], .row[data-v], .hero[data-v]');
     if (!t) {
       if (active && !ev.target.closest('#sheet')) closeSheet();
       return;
@@ -1194,6 +1529,7 @@
     if (t.dataset.fk) { buzz(); return fieldKeyPress(t.dataset.fk); }
     if (t.matches('#tape li[data-i]')) return useTapeEntry(+t.dataset.i);
     if (t.dataset.toolOpen) return showScreen('tool', t.dataset.toolOpen);
+    if (t.dataset.jobOpen) return showScreen('job', t.dataset.jobOpen);
     if (t.classList.contains('field')) { buzz(); return openSheet(t); }
     if (t.dataset.mode) {
       modes[curToolId] = t.dataset.mode;
@@ -1205,23 +1541,67 @@
       inputs[t.dataset.choice] = t.dataset.val;
       saveInputs();
       closeSheet();
+      if (t.dataset.choice.indexOf('settings.') === 0) return renderSettings();
       return renderTool(curToolId);
     }
-    if (t.matches('.row[data-v]')) {
-      const row = $('#out')._rows[+t.dataset.i];
-      addToTape(TOOL[curToolId].title + ' · ' + row.label, { v: +t.dataset.v, d: +t.dataset.d });
+    if (t.dataset.act === 'job') return addHeroToJob();
+    if (t.dataset.act === 'tape' || t.matches('.row[data-v], .hero[data-v]')) {
+      const el = t.dataset.act === 'tape' ? t.closest('.hero[data-v]') : t;
+      if (!el) return;
+      const row = curRows[+el.dataset.i];
+      addToTape(TOOL[curToolId].title + ' · ' + row.label, { v: +el.dataset.v, d: +el.dataset.d });
       buzz();
       return toast('Sent to tape');
+    }
+    if (t.dataset.act === 'newjob') {
+      const j = askNewJob();
+      if (j) showScreen('job', j.id);
+      return;
+    }
+    if (t.dataset.remove) {
+      const job = jobById(curJobId);
+      if (job && confirm('Remove this item from ' + job.name + '?')) {
+        job.items = job.items.filter((x) => x.id !== t.dataset.remove);
+        job.updated = Date.now();
+        saveJobs();
+        renderJob(curJobId);
+      }
+      return;
+    }
+    if (t.id === 'jobShare' || t.id === 'jobShare2') return shareJob();
+    if (t.id === 'jobRename') {
+      const job = jobById(curJobId);
+      const name = job && prompt('Rename job', job.name);
+      if (job && name && name.trim()) { job.name = name.trim(); job.updated = Date.now(); saveJobs(); renderJob(curJobId); }
+      return;
+    }
+    if (t.id === 'jobDelete') {
+      const job = jobById(curJobId);
+      if (job && confirm('Delete "' + job.name + '" and its ' + plural(job.items.length, 'item') + '?')) {
+        jobs = jobs.filter((j) => j.id !== job.id);
+        if (activeJob === job.id) activeJob = jobs.length ? jobs[0].id : null;
+        saveJobs();
+        showScreen('jobs');
+      }
+      return;
+    }
+    if (t.id === 'precLabel') {
+      const list = [8, 16, 32, 64];
+      const i = list.indexOf(prec());
+      settings.precision = list[(i + 1) % list.length];
+      saveSettings();
+      renderTape();
+      renderCalc();
+      return toast('Precision 1/' + settings.precision + '"');
     }
     if (t.id === 'toolClear') {
       Object.keys(inputs).forEach((k) => { if (k.indexOf(curToolId + '.') === 0) delete inputs[k]; });
       saveInputs();
       return renderTool(curToolId);
     }
-    if (t.id === 'clearTape' || t.id === 'clearTape2') {
+    if (t.id === 'clearTape2') {
       if (tape.length && confirm('Clear all ' + tape.length + ' tape entries?')) {
-        tape = []; saveTape(); renderTape();
-        if (t.id === 'clearTape2') renderSettings();
+        tape = []; saveTape(); renderTape(); renderSettings();
       }
       return;
     }
@@ -1241,9 +1621,12 @@
     }
   });
 
+  $('#toolSearch').addEventListener('input', renderTools);
+
   // Hardware / desktop keyboard
   document.addEventListener('keydown', (ev) => {
     if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    if (ev.target && ev.target.tagName === 'INPUT') return;
     const k = ev.key;
     if (active) {
       const map = { Backspace: 'bs', Enter: 'next', Escape: 'done', Tab: 'next', "'": 'ft', '"': 'in', Delete: 'clr' };

@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Jobsite Calc</title>
   <meta name="description" content="Offline feet-inch-fraction construction calculator">
-  <meta name="theme-color" content="#000000">
+  <meta name="theme-color" content="#121416">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -13,139 +13,173 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Jobsite Calc">
+  <link rel="preload" href="fonts/barlow-condensed-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="topbar">
-    <button class="nav" data-go="calc" id="navCalc">Calc</button>
-    <button class="nav" data-go="tools" id="navTools">Tools</button>
-    <button class="nav" data-go="settings" id="navSettings" aria-label="Settings">⚙</button>
-  </header>
 
   <!-- ============ Calculator ============ -->
   <main id="screen-calc" class="screen calc" hidden>
-    <div class="tape-wrap">
-      <div class="tape-head">
-        <span>Tape — tap to reuse</span>
-        <button id="clearTape" class="link">Clear</button>
+    <header class="calc-head">
+      <div class="brand">JOBSITE CALC</div>
+      <div class="chips">
+        <button class="chip" id="modeLabel" data-k="conv" aria-label="Change display units">FT-IN</button>
+        <button class="chip" id="precLabel" aria-label="Change fraction precision">1/16"</button>
       </div>
-      <ol id="tape" class="tape"></ol>
+    </header>
+
+    <div class="tape-row">
+      <span class="tape-label">TAPE</span>
+      <ol id="tape" class="tape" aria-label="Calculator tape"></ol>
     </div>
 
-    <div class="display" id="display">
+    <section class="display" id="display" aria-label="Display">
       <div class="expr" id="expr"></div>
       <div class="result" id="result" aria-live="polite">0</div>
-      <div class="meta"><span id="modeLabel">FT-IN-FRAC</span><span id="precLabel">1/16"</span></div>
+      <div class="meta"><span id="metaL"></span><span id="metaR"></span></div>
+    </section>
+
+    <div class="strip" id="strip">
+      <button data-k="yd" class="pill">yd</button>
+      <button data-k="m" class="pill">m</button>
+      <button data-k="cm" class="pill">cm</button>
+      <button data-k="mm" class="pill">mm</button>
+      <button data-k="more" class="pill wide" aria-label="Square, cubic and more functions">sq/cu √ ( )</button>
     </div>
 
     <div class="keypad" id="keypad">
-      <button data-k="ft" class="k unit">Ft '</button>
-      <button data-k="in" class="k unit">In "</button>
-      <button data-k="/" class="k unit">/</button>
-      <button data-k="bs" class="k fn" aria-label="Backspace">⌫</button>
-      <button data-k="ac" class="k fn">AC</button>
+      <button data-k="ft" class="k unit">FT</button>
+      <button data-k="in" class="k unit">IN</button>
+      <button data-k="/" class="k unit" aria-label="Fraction">a/b</button>
+      <button data-k="bs" class="k fn" aria-label="Backspace"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h11v14H9l-6-7z"/><path d="M12 9l5 6M17 9l-5 6"/></svg></button>
 
       <button data-k="7" class="k">7</button>
       <button data-k="8" class="k">8</button>
       <button data-k="9" class="k">9</button>
       <button data-k="÷" class="k op">÷</button>
-      <button data-k="yd" class="k unit sm">yd</button>
 
       <button data-k="4" class="k">4</button>
       <button data-k="5" class="k">5</button>
       <button data-k="6" class="k">6</button>
       <button data-k="×" class="k op">×</button>
-      <button data-k="m" class="k unit sm">m</button>
 
       <button data-k="1" class="k">1</button>
       <button data-k="2" class="k">2</button>
       <button data-k="3" class="k">3</button>
       <button data-k="−" class="k op">−</button>
-      <button data-k="cm" class="k unit sm">cm</button>
 
       <button data-k="0" class="k">0</button>
       <button data-k="." class="k">.</button>
-      <button data-k="conv" class="k fn sm">Conv</button>
+      <button data-k="ac" class="k fn txt">AC</button>
       <button data-k="+" class="k op">+</button>
-      <button data-k="mm" class="k unit sm">mm</button>
 
-      <button data-k="(" class="k fn">(</button>
-      <button data-k=")" class="k fn">)</button>
-      <button data-k="more" class="k fn sm">More</button>
+      <button data-k="conv" class="k fn txt sm">CONV</button>
       <button data-k="=" class="k eq">=</button>
     </div>
 
     <div class="more" id="more" hidden>
       <div class="more-grid">
-        <button data-k="sq ft" class="k unit sm">sq ft</button>
-        <button data-k="sq in" class="k unit sm">sq in</button>
-        <button data-k="sq yd" class="k unit sm">sq yd</button>
-        <button data-k="sq m" class="k unit sm">sq m</button>
-        <button data-k="cu ft" class="k unit sm">cu ft</button>
-        <button data-k="cu yd" class="k unit sm">cu yd</button>
-        <button data-k="cu in" class="k unit sm">cu in</button>
-        <button data-k="cu m" class="k unit sm">cu m</button>
+        <button data-k="sq ft" class="pill">sq ft</button>
+        <button data-k="sq in" class="pill">sq in</button>
+        <button data-k="sq yd" class="pill">sq yd</button>
+        <button data-k="sq m" class="pill">sq m</button>
+        <button data-k="cu ft" class="pill">cu ft</button>
+        <button data-k="cu yd" class="pill">cu yd</button>
+        <button data-k="cu in" class="pill">cu in</button>
+        <button data-k="cu m" class="pill">cu m</button>
+        <button data-k="(" class="k fn">(</button>
+        <button data-k=")" class="k fn">)</button>
         <button data-k="√" class="k fn">√</button>
         <button data-k="²" class="k fn">x²</button>
-        <button data-k="neg" class="k fn">±</button>
-        <button data-k="close" class="k eq sm">Close</button>
+        <button data-k="neg" class="k fn" aria-label="Plus or minus">±</button>
+        <button data-k="close" class="k eq txt sm" style="grid-column: span 3">CLOSE</button>
       </div>
     </div>
   </main>
 
-  <!-- ============ Tools grid ============ -->
+  <!-- ============ Tools list ============ -->
   <main id="screen-tools" class="screen scroll" hidden>
-    <div class="tiles" id="tiles"></div>
+    <h1 class="page-title">Tools</h1>
+    <label class="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/></svg>
+      <input type="search" id="toolSearch" aria-label="Search tools" placeholder="Search — stairs, rebar, grade…" autocomplete="off">
+    </label>
+    <div id="tiles"></div>
   </main>
 
   <!-- ============ Single tool ============ -->
   <main id="screen-tool" class="screen scroll" hidden>
-    <div class="tool-head">
-      <button class="back" data-go="tools">‹ Tools</button>
+    <header class="bar">
+      <button class="back" data-go="tools"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>Tools</button>
       <h1 id="toolTitle"></h1>
       <button class="link" id="toolClear">Clear</button>
-    </div>
+    </header>
     <div id="toolBody"></div>
+  </main>
+
+  <!-- ============ Jobs ============ -->
+  <main id="screen-jobs" class="screen scroll" hidden>
+    <h1 class="page-title">Jobs</h1>
+    <div id="jobsBody"></div>
+  </main>
+
+  <main id="screen-job" class="screen scroll" hidden>
+    <header class="bar">
+      <button class="back" data-go="jobs"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>Jobs</button>
+      <h1 id="jobTitle"></h1>
+      <button class="icon-btn" id="jobShare" aria-label="Share takeoff"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M8 8l4-4 4 4M5 14v5h14v-5"/></svg></button>
+    </header>
+    <div id="jobBody"></div>
   </main>
 
   <!-- ============ Settings ============ -->
   <main id="screen-settings" class="screen scroll" hidden>
+    <h1 class="page-title">Settings</h1>
     <div id="settingsBody"></div>
   </main>
 
-  <!-- ============ Field keypad (bottom sheet) ============ -->
+  <!-- ============ Bottom tab bar ============ -->
+  <nav class="tabbar" aria-label="Main">
+    <button class="tab" data-go="calc" id="navCalc"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12h1M12 12h1M15 12h1M8 16h1M12 16h1M15 16h1"/></svg><span>CALC</span></button>
+    <button class="tab" data-go="tools" id="navTools"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg><span>TOOLS</span></button>
+    <button class="tab" data-go="jobs" id="navJobs"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v3H9zM9 11h6M9 15h4"/></svg><span>JOBS</span></button>
+    <button class="tab" data-go="settings" id="navSettings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg><span>SETTINGS</span></button>
+  </nav>
+
+  <!-- ============ Measurement entry sheet ============ -->
   <div class="sheet" id="sheet" hidden>
-    <div class="sheet-head">
-      <div class="sheet-info">
-        <div class="sheet-label" id="sheetLabel"></div>
-        <div class="sheet-val" id="sheetVal"></div>
+    <div class="grabber" aria-hidden="true"></div>
+    <div class="readout">
+      <div class="readout-head">
+        <span class="sheet-label" id="sheetLabel"></span>
+        <span class="sheet-hint" id="sheetHint"></span>
+        <button class="link" data-fk="done">Done</button>
       </div>
-      <button class="k eq sm" data-fk="done">Done</button>
+      <div class="sheet-val-row"><span class="sheet-val" id="sheetVal"></span><span class="caret" aria-hidden="true"></span></div>
     </div>
     <div class="fkeys" id="fkeys">
       <button data-fk="7" class="k">7</button>
       <button data-fk="8" class="k">8</button>
       <button data-fk="9" class="k">9</button>
-      <button data-fk="ft" class="k unit u-only">Ft '</button>
-      <button data-fk="bs" class="k fn" aria-label="Backspace">⌫</button>
+      <button data-fk="ft" class="k unit u-only">FT</button>
 
       <button data-fk="4" class="k">4</button>
       <button data-fk="5" class="k">5</button>
       <button data-fk="6" class="k">6</button>
-      <button data-fk="in" class="k unit u-only">In "</button>
-      <button data-fk="clr" class="k fn sm">Clear</button>
+      <button data-fk="in" class="k unit u-only">IN</button>
 
       <button data-fk="1" class="k">1</button>
       <button data-fk="2" class="k">2</button>
       <button data-fk="3" class="k">3</button>
-      <button data-fk="/" class="k unit">/</button>
-      <button data-fk="ans" class="k fn sm">Ans</button>
+      <button data-fk="/" class="k unit" aria-label="Fraction">a/b</button>
 
-      <button data-fk="0" class="k">0</button>
       <button data-fk="." class="k">.</button>
-      <button data-fk=" " class="k fn sm" aria-label="Space">Space</button>
-      <button data-fk="+" class="k op">+</button>
-      <button data-fk="next" class="k eq sm">Next</button>
+      <button data-fk="0" class="k">0</button>
+      <button data-fk="bs" class="k fn" aria-label="Backspace"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h11v14H9l-6-7z"/><path d="M12 9l5 6M17 9l-5 6"/></svg></button>
+      <button data-fk="ans" class="k fn txt sm">ANS</button>
+
+      <button data-fk="clr" class="k fn txt sm">CLEAR</button>
+      <button data-fk="next" class="k eq txt next" id="nextKey">NEXT</button>
     </div>
   </div>
 

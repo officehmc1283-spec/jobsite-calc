@@ -63,7 +63,7 @@ python3 -m http.server 8765 &
 node tests/e2e.test.js
 ```
 
-Last run (Sept 24, 2026): unit tests 81/81 passed, phone test 86/86 passed (includes layout checks on iPhone SE, 14 Pro Max and landscape), no JavaScript errors, offline cold start works.
+Last run (Sept 24, 2026): unit tests 81/81 passed, phone test 99/99 passed (includes layout checks on iPhone SE, 14 Pro Max and landscape), no JavaScript errors, offline cold start works.
 
 `tests/stairs.sweep.js` checks the stair tool against independent math for every total rise from 6" to 20' in 1/16" steps (26,215 cases): `node tests/stairs.sweep.js`.
 
@@ -105,13 +105,16 @@ Tape, settings and tool inputs are kept.
 * **Block (CMU):** block count, courses, mortar bags and solid grout.
 * **Concrete** gained Wall, Thick-edge slab and Pads, and every concrete result now shows 10-yd truck count.
 
-## Look & feel (version 5)
+## Look & feel (version 6: "Graphite & Safety Yellow")
 
-* Black header with a yellow rule in both themes. It sits under the iPhone status bar, so the clock and battery stay readable.
-* Every button is at least 44 px (Apple's minimum). Keys shrink a little on small phones (SE/mini) so the tape keeps its space.
-* Landscape: tape and display on the left, keypad on the right, and a 2-row field keypad.
-* Numbers of 10,000 and up get commas (elevations like 7703.45 stay plain). A long press doesn't pop up text selection.
-* New square-and-rule home-screen icon. Settings shows the version number so you can confirm an update reached the phone.
+* **Bottom tabs:** Calc · Tools · Jobs · Settings. Two themes: Graphite (night, default) and Daylight (sun), set in Settings.
+* **Calculator:** 4-column keypad with an FT / IN / a/b row. Metric, sq/cu, √, ( ) and ± sit in a thin strip above it. The tape is a row of chips you tap to reuse. The header chips change display units and fraction precision.
+* **Tools:** grouped by trade (Sitework, Concrete & Masonry, Framing, Geometry & Units), with search and the 3 most recent tools at the top.
+* **Tool screens:** the main answer sits in a big result card with **Add to job** and **Send to tape**, then the inputs with unit tags, then the other results as tiles.
+* **Entry keypad:** big readout plus a **NEXT: <field>** button that jumps to the next input.
+* **Jobs (new):** "Add to job" collects results. A job adds up like items, e.g. all concrete → one order with net, waste and 10-yd truck count. Share or copy the takeoff, rename or delete jobs. Jobs are stored only on the phone.
+* **Fonts:** Barlow and Barlow Condensed ship inside the app (`fonts/`, SIL Open Font License) so the look works offline.
+* Every button is at least 44 px. Layout is checked on iPhone SE, 14 Pro Max and landscape.
 
 ## Notes
 
