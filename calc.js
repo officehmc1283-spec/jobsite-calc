@@ -763,7 +763,232 @@
     };
   }
 
+  // ================================================================ MONEY & REAL ESTATE
+  // Dollars are plain numbers. Rates are annual percents. Estimates only.
+
+  const money = (x) => {
+    if (!isFinite(x)) return '—';
+    const neg = x < 0;
+    const s = Math.abs(x).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return (neg ? '-$' : '$') + s;
+  };
+
+  // Monthly principal & interest for a fully amortizing loan.
+  function payment(principal, ratePct, years) {
+    need(principal >= 0, 'Loan amount cannot be negative');
+    need(pos(years), 'Enter the loan term');
+    const n = Math.round(years * 12), r = ratePct / 1200;
+    if (!principal) return 0;
+    if (Math.abs(r) < 1e-12) return principal / n;
+    return principal * r / (1 - Math.pow(1 + r, -n));
+  }
+
+  // Balance left after k monthly payments.
+  function balanceAfter(principal, ratePct, years, k) {
+    const r = ratePct / 1200, pmt = payment(principal, ratePct, years);
+    if (Math.abs(r) < 1e-12) return Math.max(0, principal - pmt * k);
+    return Math.max(0, principal * Math.pow(1 + r, k) - pmt * (Math.pow(1 + r, k) - 1) / r);
+  }
+
+  // Month-by-month payoff with an optional extra monthly amount and a one-time lump today.
+  function payoff(balance, ratePct, pmt, extra, lump) {
+    need(pos(balance), 'Enter the loan balance');
+    need(pos(pmt), 'Enter the monthly payment');
+    const r = ratePct / 1200;
+    let b = balance - (lump || 0), months = 0, interest = 0;
+    need(b >= 0, 'The lump sum pays off the whole loan');
+    if (b < 0.005) return { months: 0, interest: 0 };
+    need(pmt + (extra || 0) > b * r + 0.005, "That payment doesn't cover the monthly interest");
+    while (b > 0.005 && months < 1200) {
+      const i = b * r;
+      interest += i;
+      b = b + i - pmt - (extra || 0);
+      months++;
+    }
+    return { months, interest };
+  }
+
+  function monthsText(m) {
+    const y = Math.floor(m / 12), mo = m % 12;
+    return (y ? y + ' yr' + (y === 1 ? '' : 's') : '') + (y && mo ? ' ' : '') + (mo || !y ? mo + ' mo' : '');
+  }
+
+  function mortgage(o) {
+    need(pos(o.price), 'Enter the price');
+    need(o.downPct >= 0 && o.downPct < 100, 'Down payment must be 0–99%');
+    const down = o.price * o.downPct / 100, loan = o.price - down;
+    const pi = payment(loan, o.rate, o.years);
+    const ltv = loan / o.price * 100;
+    const pmi = ltv > 80 + EPS ? loan * (o.pmiPct || 0) / 100 / 12 : 0;
+    const tax = (o.taxYr || 0) / 12, ins = (o.insYr || 0) / 12, hoa = o.hoaMo || 0;
+    const n = Math.round(o.years * 12);
+    return { down, loan, pi, tax, ins, pmi, hoa, ltv, total: pi + tax + ins + pmi + hoa, totalInterest: pi * n - loan, totalPaid: pi * n };
+  }
+
+  // Largest price whose housing cost fits both debt-to-income limits.
+  function affordability(o) {
+    need(pos(o.incomeYr), 'Enter yearly income');
+    const inc = o.incomeYr / 12;
+    const front = inc * (o.frontPct || 28) / 100;
+    const back = inc * (o.backPct || 36) / 100 - (o.debtsMo || 0);
+    const budget = Math.min(front, back);
+    need(budget > (o.hoaMo || 0), 'Debts are too high for any payment at those ratios');
+    const f = payment(1, o.rate, o.years);               // P&I per $1 borrowed
+    const t = (o.taxInsPct || 0) / 100 / 12;              // taxes + insurance per $1 of price
+    const down = o.down || 0;
+    let price = (budget - (o.hoaMo || 0) + f * down) / (f + t);
+    if (price < down) price = down;
+    const loan = Math.max(0, price - down), pi = loan * f;
+    return { price, loan, pi, taxIns: price * t, hoa: o.hoaMo || 0, budget, limitedBy: back < front ? 'back' : 'front' };
+  }
+
+  function sellerNet(o) {
+    need(pos(o.price), 'Enter the sale price');
+    const commission = o.price * (o.commPct || 0) / 100;
+    const transfer = o.price * (o.transferPct || 0) / 100;
+    const costs = commission + transfer + (o.payoff || 0) + (o.closing || 0) + (o.concessions || 0) + (o.other || 0);
+    return { commission, transfer, costs, net: o.price - costs };
+  }
+
+  function commissionSplit(o) {
+    need(pos(o.price), 'Enter the sale price');
+    const gross = o.price * (o.commPct || 0) / 100;
+    const side = gross * (o.sidePct == null ? 100 : o.sidePct) / 100;
+    const agent = side * (o.splitPct == null ? 100 : o.splitPct) / 100;
+    return { gross, side, agent, broker: side - agent, net: agent - (o.fees || 0) };
+  }
+
+  const isLeap = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  // Day of year (1-based) for month/day in year.
+  function dayOfYear(y, m, d) {
+    need(m >= 1 && m <= 12 && Math.round(m) === m, 'Month must be 1–12');
+    const dim = [31, isLeap(y) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    need(d >= 1 && d <= dim[m - 1] && Math.round(d) === d, 'That day is not in that month');
+    let n = d;
+    for (let i = 0; i < m - 1; i++) n += dim[i];
+    return n;
+  }
+
+  // Yearly bill (taxes, HOA…) split at closing. Seller owns Jan 1 up to closing.
+  function proration(o) {
+    need(pos(o.amount), 'Enter the yearly amount');
+    const yearDays = o.basis === 365 ? 365 : (isLeap(o.year) ? 366 : 365);
+    const doy = dayOfYear(o.year, o.month, o.day);
+    const sellerDays = Math.min(yearDays, o.closingDayBuyer ? doy - 1 : doy);
+    const daily = o.amount / yearDays;
+    const seller = daily * sellerDays, buyer = o.amount - seller;
+    return { daily, sellerDays, buyerDays: yearDays - sellerDays, yearDays, seller, buyer,
+      // In arrears the bill isn't paid yet: seller credits the buyer for the seller's days.
+      // In advance the seller already paid the year: buyer reimburses the seller for the buyer's days.
+      credit: o.arrears ? seller : buyer };
+  }
+
+  function investment(o) {
+    need(pos(o.price), 'Enter the price');
+    need(pos(o.rentMo), 'Enter the monthly rent');
+    const gsi = (o.rentMo + (o.otherMo || 0)) * 12;
+    const vacancy = gsi * (o.vacancyPct || 0) / 100;
+    const egi = gsi - vacancy;
+    const noi = egi - (o.expensesYr || 0);
+    const down = o.price * (o.downPct || 0) / 100, loan = o.price - down;
+    const debt = payment(loan, o.rate || 0, o.years || 30) * 12;
+    const cash = down + (o.closing || 0);
+    const flow = noi - debt;
+    return { gsi, vacancy, egi, noi, cap: noi / o.price * 100, debt, flow, cash,
+      coc: cash > 0 ? flow / cash * 100 : null, dscr: debt > 0 ? noi / debt : null, grm: o.price / gsi, loan };
+  }
+
+  // Construction loan drawn in equal monthly amounts (at the start of each month).
+  function constructionInterest(o) {
+    need(pos(o.loan), 'Enter the loan amount');
+    need(pos(o.months), 'Enter the number of months');
+    const n = Math.round(o.months), r = (o.rate || 0) / 1200;
+    const interest = r * o.loan * (n + 1) / 2;
+    return { interest, avgBalance: o.loan * (n + 1) / (2 * n), lastMonth: o.loan * r, points: o.loan * (o.pointsPct || 0) / 100 };
+  }
+
+  const ACRE_SQFT = 43560;
+  function pricePer(o) {
+    need(pos(o.price), 'Enter the price');
+    return {
+      perSqft: pos(o.sqft) ? o.price / o.sqft : null,
+      perAcre: pos(o.acres) ? o.price / o.acres : null,
+      lotSqft: pos(o.acres) ? o.acres * ACRE_SQFT : null
+    };
+  }
+  function comps(list, subjectSqft) {
+    const ok = list.filter((c) => pos(c.price) && pos(c.sqft));
+    need(ok.length, 'Enter at least one comp (price and sq ft)');
+    const per = ok.map((c) => c.price / c.sqft);
+    const avg = per.reduce((a, b) => a + b, 0) / per.length;
+    return { per, avg, low: Math.min.apply(null, per), high: Math.max.apply(null, per), value: pos(subjectSqft) ? avg * subjectSqft : null };
+  }
+
+  // ================================================================ BIDDING
+  function markupFromCost(cost, markupPct, marginPct) {
+    need(pos(cost), 'Enter the cost');
+    let price;
+    if (given(markupPct)) price = cost * (1 + markupPct / 100);
+    else if (given(marginPct)) { need(marginPct < 100, 'Margin must be under 100%'); price = cost / (1 - marginPct / 100); }
+    else throw new Error('Enter a markup % or a margin %');
+    return { price, profit: price - cost, margin: (price - cost) / price * 100, markup: (price - cost) / cost * 100 };
+  }
+  function marginFromPrice(cost, price) {
+    need(pos(cost) && pos(price), 'Enter cost and price');
+    return { profit: price - cost, margin: (price - cost) / price * 100, markup: (price - cost) / cost * 100 };
+  }
+  function laborCost(o) {
+    need(pos(o.workers) && pos(o.hours) && pos(o.wage), 'Enter crew size, hours and wage');
+    const reg = o.workers * o.hours * o.wage;
+    const ot = o.workers * (o.otHours || 0) * o.wage * (o.otMult || 1.5);
+    const wages = reg + ot;
+    const burden = wages * (o.burdenPct || 0) / 100;
+    const hrs = o.workers * (o.hours + (o.otHours || 0));
+    return { reg, ot, wages, burden, total: wages + burden, manHours: hrs, perHour: (wages + burden) / hrs };
+  }
+
+  // ================================================================ PIPE / CONDUIT OFFSETS
+  // offset (inches) at fitting angle deg → travel (center-to-center) and run (advance).
+  function pipeOffset(offset, deg) {
+    need(pos(offset), 'Enter the offset');
+    need(deg > 0 && deg < 90, 'Angle must be between 0° and 90°');
+    const t = deg * RAD;
+    return { travel: offset / Math.sin(t), run: offset / Math.tan(t), multiplier: 1 / Math.sin(t), shrink: (1 / Math.sin(t) - 1 / Math.tan(t)) };
+  }
+  function rollingOffset(set, roll, deg) {
+    need(pos(set) || pos(roll), 'Enter the set and the roll');
+    const trueOffset = Math.hypot(set || 0, roll || 0);
+    return Object.assign({ trueOffset }, pipeOffset(trueOffset, deg));
+  }
+
+  // ================================================================ MORE UNIT CONVERSIONS
+  // factor = how many base units in one of this unit
+  const UNIT_SETS = {
+    pressure: { base: 'psi', units: [['psi', 'psi', 1], ['kpa', 'kPa', 1 / 6.894757], ['bar', 'bar', 1 / 0.06894757], ['inhg', 'in Hg', 1 / 2.03602],
+      ['inwc', 'in water', 1 / 27.7070], ['fthead', 'ft of head', 1 / 2.30892], ['atm', 'atm', 14.69595]] },
+    flow: { base: 'gpm', units: [['gpm', 'gpm', 1], ['gph', 'gph', 1 / 60], ['cfm', 'cfm', 1 / 0.133681], ['lpm', 'L/min', 1 / 3.785412],
+      ['lps', 'L/s', 1 / 0.0630902], ['m3h', 'm³/h', 1 / 0.2271247]] },
+    weight: { base: 'lb', units: [['lb', 'lb', 1], ['oz', 'oz', 1 / 16], ['ton', 'ton (2,000 lb)', 2000], ['kg', 'kg', 2.2046226], ['g', 'g', 0.0022046226], ['t', 'metric ton', 2204.6226]] },
+    power: { base: 'btuh', units: [['btuh', 'BTU/h', 1], ['w', 'watts', 3.412142], ['kw', 'kW', 3412.142], ['hp', 'hp', 2544.434], ['tonr', 'tons (cooling)', 12000]] },
+    energy: { base: 'btu', units: [['btu', 'BTU', 1], ['kwh', 'kWh', 3412.142], ['therm', 'therms', 100000], ['kj', 'kJ', 0.9478171], ['wh', 'Wh', 3.412142]] }
+  };
+  function convertUnits(set, value, from) {
+    const s = UNIT_SETS[set];
+    need(s, 'Unknown unit type');
+    const u = s.units.find((x) => x[0] === from);
+    need(u, 'Unknown unit');
+    const base = value * u[2];
+    return s.units.map(([id, label, f]) => ({ id, label, value: base / f }));
+  }
+  function convertTemp(value, from) {
+    const c = from === 'f' ? (value - 32) * 5 / 9 : from === 'k' ? value - 273.15 : value;
+    return { f: c * 9 / 5 + 32, c, k: c + 273.15 };
+  }
+
   const Calc = {
+    money, payment, balanceAfter, payoff, monthsText, mortgage, affordability, sellerNet, commissionSplit,
+    dayOfYear, proration, investment, constructionInterest, pricePer, comps, ACRE_SQFT,
+    markupFromCost, marginFromPrice, laborCost, pipeOffset, rollingOffset, UNIT_SETS, convertUnits, convertTemp,
     grade, gradeElevations, station, pipeFall,
     SOILS, soilFactors, swellShrink, loads, trench, pit, averageEndArea,
     MATERIALS, tonnage, thickEdgeSlab,

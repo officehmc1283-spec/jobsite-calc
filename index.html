@@ -102,7 +102,7 @@
     <h1 class="page-title">Tools</h1>
     <label class="search">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/></svg>
-      <input type="search" id="toolSearch" aria-label="Search tools" placeholder="Search — stairs, rebar, grade…" autocomplete="off">
+      <input type="search" id="toolSearch" aria-label="Search tools" placeholder="Search — stairs, offset, mortgage…" autocomplete="off">
     </label>
     <div id="tiles"></div>
   </main>
@@ -112,7 +112,10 @@
     <header class="bar">
       <button class="back" data-go="tools"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>Tools</button>
       <h1 id="toolTitle"></h1>
-      <button class="link" id="toolClear">Clear</button>
+      <div class="bar-r">
+        <button class="icon-btn star" id="toolFav" aria-pressed="false" aria-label="Add to favorites"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8-4.3-4.1 5.9-.9z"/></svg></button>
+        <button class="link" id="toolClear">Clear</button>
+      </div>
     </header>
     <div id="toolBody"></div>
   </main>
@@ -136,6 +139,11 @@
   <main id="screen-settings" class="screen scroll" hidden>
     <h1 class="page-title">Settings</h1>
     <div id="settingsBody"></div>
+  </main>
+
+  <!-- ============ First launch: pick your trades ============ -->
+  <main id="screen-welcome" class="screen scroll" hidden>
+    <div id="welcomeBody"></div>
   </main>
 
   <!-- ============ Bottom tab bar ============ -->

@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const C = window.Calc;
-  const APP_VERSION = '8';
+  const APP_VERSION = '9';
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -15,7 +15,8 @@
     },
     set(k, v) { try { localStorage.setItem('jsc.' + k, JSON.stringify(v)); } catch (e) { /* storage full or blocked */ } }
   };
-  const settings = Object.assign({ precision: 16, theme: 'dark', conv: { 0: 0, 1: 0, 2: 0, 3: 0 } }, store.get('settings', {}));
+  const settings = Object.assign({ precision: 16, theme: 'dark', conv: { 0: 0, 1: 0, 2: 0, 3: 0 }, favs: [] }, store.get('settings', {}));
+  if (!Array.isArray(settings.favs)) settings.favs = [];
   const inputs = store.get('inputs', {});   // raw field text, keyed "tool.field"
   const modes = store.get('modes', {});     // selected mode per tool
   let tape = store.get('tape', []);
@@ -295,6 +296,17 @@
     ];
   }
   const depthField = len('depth', 'Depth / thickness', 'in', { hint: 'for volume' });
+
+  const money = (id, label, x) => num(id, label, Object.assign({ tag: '$' }, x));
+  const M = (label, v, o) => Object.assign({ label, money: v }, o);
+  const FIN_NOTE = 'Estimates only — not a lender quote or financial advice.';
+  // Plain number with sensible precision: 6.894757 → 6.8948, 12000 → 12,000
+  const sig = (x) => { const a = Math.abs(x); return C.fmtNum(x, a >= 1000 ? 1 : a >= 10 ? 3 : a >= 1 ? 4 : 6); };
+  const angleChoice = () => choice('ang', 'Fitting / bend angle', [['11.25', '11¼°'], ['22.5', '22½°'], ['30', '30°'], ['45', '45°'], ['60', '60°']], '45');
+  function offsetRows(r, off, extra) {
+    return (extra || []).concat([L('Travel', r.travel, { big: true, fmt: 'in' }), L('Run (advance)', r.run, { fmt: 'in' }),
+      N('Multiplier', r.multiplier, 3, '×'), L('Conduit shrink', r.shrink * off, { fmt: 'in', sub: C.fmtNum(r.shrink, 3) + '" per inch of offset' })]);
+  }
 
   const TOOLS = [
     {
@@ -872,10 +884,10 @@
       ]
     },
     {
-      id: 'convert', title: 'Convert', desc: 'Length · area · volume units',
-      note: 'Units typed in the value win over the "From" setting. Tap any result to send it to the tape.',
+      id: 'convert', title: 'Convert', desc: 'Length · area · volume · pressure · flow · temp · power',
       modes: [{
-        id: 'main',
+        id: 'main', label: 'Length',
+        note: 'Length, area and volume. Units typed in the value win over the "From" setting. Tap any result to send it to the tape.',
         fields: [
           { id: 'val', label: 'Value', kind: 'any', req: true },
           choice('from', 'From (if no unit typed)', [
@@ -896,8 +908,298 @@
             return r;
           });
         }
+      }].concat(
+        [['pressure', 'Pressure', 'psi · kPa · bar · ft of head · in water (manometer)'],
+          ['flow', 'Flow', 'gpm · cfm · L/min · m³/h'],
+          ['temp', 'Temp'],
+          ['weight', 'Weight', 'lb · kg · tons'],
+          ['power', 'Power', 'BTU/h · watts · kW · hp · tons of cooling'],
+          ['energy', 'Energy', 'BTU · kWh · therms']].map(([set, label, note]) => set === 'temp' ? {
+          id: 'temp', label: 'Temp',
+          fields: [num('val', 'Temperature', { req: true }), choice('from', 'From', [['f', '°F'], ['c', '°C'], ['k', 'K']], 'f')],
+          compute(v) {
+            const t = C.convertTemp(v.val, v.from);
+            const rows = [['f', '°F', t.f], ['c', '°C', t.c], ['k', 'K', t.k]].filter((x) => x[0] !== v.from)
+              .map(([, lab, x]) => ({ label: lab, fixed: C.fmtNum(x, 2) + ' ' + lab, raw: { v: x, d: 0 } }));
+            rows[0].big = true;
+            return rows;
+          }
+        } : {
+          id: set, label, note: 'Tap any result to send it to the tape. ' + note + '.',
+          fields: [num('val', 'Value', { req: true }), choice('from', 'From', C.UNIT_SETS[set].units.map((u) => [u[0], u[1]]), C.UNIT_SETS[set].units[0][0])],
+          compute(v) {
+            const rows = C.convertUnits(set, v.val, v.from).filter((u) => u.id !== v.from)
+              .map((u) => ({ label: u.label, fixed: sig(u.value) + ' ' + u.label, raw: { v: u.value, d: 0 } }));
+            rows[0].big = true;
+            return rows;
+          }
+        })
+      )
+    },
+
+    // ---------------------------------------------------------------- bidding & crew
+    {
+      id: 'markup', title: 'Markup & Margin', desc: 'Price a job · markup vs. margin',
+      note: 'Markup is profit ÷ cost. Margin is profit ÷ price. 25% markup = 20% margin.',
+      modes: [
+        {
+          id: 'cost', label: 'From cost',
+          fields: [money('cost', 'Cost', { req: true }), num('mk', 'Markup %', { hint: 'or margin' }), num('mg', 'Margin %', { hint: 'or markup' })],
+          compute(v) {
+            const r = C.markupFromCost(v.cost, v.mk, v.mk == null ? v.mg : null);
+            return [M('Sell price', r.price, { big: true }), M('Profit', r.profit), N('Markup', r.markup, 2, '%'), N('Margin', r.margin, 2, '%'),
+              v.mk != null && v.mg != null ? I('Using markup — clear it to price by margin.') : null].filter(Boolean);
+          }
+        },
+        {
+          id: 'price', label: 'From price',
+          fields: [money('cost', 'Cost', { req: true }), money('price', 'Sell price', { req: true })],
+          compute(v) {
+            const r = C.marginFromPrice(v.cost, v.price);
+            const rows = [N('Margin', r.margin, 2, '%', { big: true }), N('Markup', r.markup, 2, '%'), M('Profit', r.profit)];
+            if (r.profit < 0) rows.push(W('Price is below cost.'));
+            return rows;
+          }
+        }
+      ]
+    },
+    {
+      id: 'labor', title: 'Labor Cost', desc: 'Crew · hours · overtime · burden',
+      note: 'Burden covers payroll taxes, workers comp and benefits (often 20–40%).',
+      modes: [{
+        id: 'main',
+        fields: [num('workers', 'Crew size', { req: true, tag: 'MEN' }), num('hours', 'Regular hours each', { req: true, tag: 'HR' }),
+          money('wage', 'Wage per hour', { req: true }), num('burden', 'Burden %', { def: 30 }),
+          num('ot', 'Overtime hours each', { tag: 'HR' }), num('otx', 'Overtime rate', { def: 1.5, tag: '×' })],
+        compute(v) {
+          const r = C.laborCost({ workers: v.workers, hours: v.hours, wage: v.wage, burdenPct: v.burden, otHours: v.ot, otMult: v.otx });
+          const rows = [M('Total labor', r.total, { big: true }), M('Cost per man-hour', r.perHour), M('Wages', r.wages), M('Burden', r.burden),
+            N('Man-hours', r.manHours, 2, ' hr')];
+          if (r.ot) rows.push(M('Overtime wages', r.ot));
+          return rows;
+        }
       }]
+    },
+
+    // ---------------------------------------------------------------- pipe & conduit
+    {
+      id: 'offsets', title: 'Offsets', desc: 'Pipe & conduit · travel · run · rolling',
+      note: 'Travel is center-to-center between fittings (or between bend marks). Run is how far the offset advances. Shrink is how much a conduit offset shortens the run.',
+      modes: [
+        {
+          id: 'simple', label: 'Offset',
+          fields: [len('off', 'Offset', 'in', { req: true }), angleChoice()],
+          compute(v) {
+            const r = C.pipeOffset(v.off, +v.ang);
+            return offsetRows(r, v.off);
+          }
+        },
+        {
+          id: 'rolling', label: 'Rolling',
+          fields: [len('set', 'Set (vertical)', 'in', { req: true }), len('roll', 'Roll (horizontal)', 'in', { req: true }), angleChoice()],
+          compute(v) {
+            const r = C.rollingOffset(v.set, v.roll, +v.ang);
+            return offsetRows(r, r.trueOffset, [L('True offset', r.trueOffset, { fmt: 'in' })]);
+          }
+        }
+      ]
+    },
+
+    // ---------------------------------------------------------------- real estate & finance
+    {
+      id: 'mortgage', title: 'Mortgage', desc: 'Monthly payment (PITI) · what can I afford',
+      note: FIN_NOTE,
+      modes: [
+        {
+          id: 'pay', label: 'Payment',
+          fields: [money('price', 'Price', { req: true }), num('down', 'Down payment %', { def: 20 }), num('rate', 'Interest rate %', { req: true }),
+            num('years', 'Term', { def: 30, tag: 'YR' }), money('tax', 'Property tax / yr'), money('ins', 'Insurance / yr'), money('hoa', 'HOA / mo'),
+            num('pmi', 'PMI %', { def: 0.5, hint: 'only if under 20% down' })],
+          compute(v) {
+            const m = C.mortgage({ price: v.price, downPct: v.down, rate: v.rate, years: v.years, taxYr: v.tax, insYr: v.ins, hoaMo: v.hoa, pmiPct: v.pmi });
+            const rows = [M('Monthly payment', m.total, { big: true }), M('Principal & interest', m.pi)];
+            if (m.tax) rows.push(M('Property tax', m.tax));
+            if (m.ins) rows.push(M('Insurance', m.ins));
+            if (m.pmi) rows.push(M('PMI', m.pmi));
+            if (m.hoa) rows.push(M('HOA', m.hoa));
+            rows.push(M('Loan amount', m.loan), M('Down payment', m.down), M('Total interest', m.totalInterest), N('Loan-to-value', m.ltv, 1, '%'));
+            return rows;
+          }
+        },
+        {
+          id: 'afford', label: 'Affordability',
+          fields: [money('income', 'Gross income / yr', { req: true }), money('debts', 'Other debts / mo', { hint: 'car, cards, student loans' }),
+            money('down', 'Cash for down payment'), num('rate', 'Interest rate %', { req: true }), num('years', 'Term', { def: 30, tag: 'YR' }),
+            num('ti', 'Tax + insurance %', { def: 1, hint: 'of price, yearly' }), money('hoa', 'HOA / mo'),
+            num('front', 'Housing ratio %', { def: 28 }), num('back', 'Total debt ratio %', { def: 36 })],
+          compute(v) {
+            const a = C.affordability({ incomeYr: v.income, debtsMo: v.debts, down: v.down, rate: v.rate, years: v.years, taxInsPct: v.ti, hoaMo: v.hoa, frontPct: v.front, backPct: v.back });
+            return [M('Max price', a.price, { big: true }), M('Loan amount', a.loan), M('Monthly budget', a.budget), M('Principal & interest', a.pi),
+              M('Tax + insurance', a.taxIns), I('Limited by the ' + (a.limitedBy === 'back' ? 'total debt ratio (' + (v.back || 36) + '%)' : 'housing ratio (' + (v.front || 28) + '%)') + '.')];
+          }
+        }
+      ]
+    },
+    {
+      id: 'payoff', title: 'Loan Payoff', desc: 'Extra payments · balance after N payments',
+      note: FIN_NOTE,
+      modes: [
+        {
+          id: 'extra', label: 'Extra payments',
+          fields: [money('bal', 'Loan balance', { req: true }), num('rate', 'Interest rate %', { req: true }), money('pmt', 'Monthly payment (P&I)', { req: true }),
+            money('extra', 'Extra each month'), money('lump', 'One-time extra now')],
+          compute(v) {
+            const base = C.payoff(v.bal, v.rate, v.pmt, 0, 0);
+            const w = C.payoff(v.bal, v.rate, v.pmt, v.extra, v.lump);
+            const rows = [T('Paid off in', C.monthsText(w.months), { big: true })];
+            if (v.extra || v.lump) rows.push(T('Time saved', C.monthsText(base.months - w.months)), M('Interest saved', base.interest - w.interest));
+            rows.push(M('Total interest', w.interest));
+            if (v.extra || v.lump) rows.push(T('Without extra', C.monthsText(base.months)));
+            if (base.months >= 1200) rows.push(W('At that payment the loan takes 100+ years.'));
+            return rows;
+          }
+        },
+        {
+          id: 'after', label: 'Balance after',
+          fields: [money('loan', 'Original loan', { req: true }), num('rate', 'Interest rate %', { req: true }), num('years', 'Term', { def: 30, tag: 'YR' }),
+            num('k', 'Payments made', { req: true, tag: 'MO' })],
+          compute(v) {
+            const n = Math.round(v.years * 12);
+            if (!(v.k >= 0 && v.k <= n)) throw new Error('Payments made must be 0–' + n);
+            const pmt = C.payment(v.loan, v.rate, v.years);
+            const bal = C.balanceAfter(v.loan, v.rate, v.years, v.k);
+            return [M('Balance', bal, { big: true }), M('Monthly P&I', pmt), M('Principal paid', v.loan - bal), M('Interest paid', pmt * v.k - (v.loan - bal)),
+              T('Time left', C.monthsText(n - Math.round(v.k)))];
+          }
+        }
+      ]
+    },
+    {
+      id: 'netsheet', title: 'Seller Net', desc: 'Net sheet · commission split',
+      note: FIN_NOTE,
+      modes: [
+        {
+          id: 'net', label: 'Net sheet',
+          fields: [money('price', 'Sale price', { req: true }), num('comm', 'Commission %', { req: true }), money('payoff', 'Loan payoff'),
+            money('closing', 'Closing costs'), money('conc', 'Concessions / credits'), num('transfer', 'Transfer tax %'), money('other', 'Other costs')],
+          compute(v) {
+            const r = C.sellerNet({ price: v.price, commPct: v.comm, payoff: v.payoff, closing: v.closing, concessions: v.conc, transferPct: v.transfer, other: v.other });
+            const rows = [M('Net to seller', r.net, { big: true }), M('Commission', r.commission), M('Total costs', r.costs)];
+            if (r.transfer) rows.push(M('Transfer tax', r.transfer));
+            rows.push(N('Net of price', r.net / v.price * 100, 1, '%'));
+            if (r.net < 0) rows.push(W('Seller would need to bring money to closing.'));
+            return rows;
+          }
+        },
+        {
+          id: 'split', label: 'Commission split',
+          fields: [money('price', 'Sale price', { req: true }), num('comm', 'Total commission %', { req: true }), num('side', 'Your side %', { def: 50 }),
+            num('split', 'Agent split %', { def: 70 }), money('fees', 'Fees (transaction, franchise)')],
+          compute(v) {
+            const r = C.commissionSplit({ price: v.price, commPct: v.comm, sidePct: v.side, splitPct: v.split, fees: v.fees });
+            return [M('Agent net', r.net, { big: true }), M('Gross commission', r.gross), M('Your side', r.side), M('Agent share', r.agent), M('Broker share', r.broker)];
+          }
+        }
+      ]
+    },
+    {
+      id: 'proration', title: 'Proration', desc: 'Property tax & HOA split at closing',
+      note: FIN_NOTE + ' Check the contract for the proration method.',
+      modes: [{
+        id: 'main',
+        fields: [money('amt', 'Yearly amount', { req: true }), num('month', 'Closing month', { req: true, hint: '1–12' }), num('day', 'Closing day', { req: true }),
+          num('year', 'Year', { def: () => new Date().getFullYear() }),
+          choice('paid', 'Bill is paid', [['arrears', 'In arrears'], ['advance', 'In advance']], 'arrears'),
+          choice('cday', 'Closing day belongs to', [['buyer', 'Buyer'], ['seller', 'Seller']], 'buyer'),
+          choice('basis', 'Year basis', [['365', '365 days'], ['actual', 'Actual days']], '365')],
+        compute(v) {
+          const p = C.proration({ amount: v.amt, year: v.year, month: v.month, day: v.day, basis: v.basis === '365' ? 365 : 'actual', closingDayBuyer: v.cday === 'buyer', arrears: v.paid === 'arrears' });
+          return [M(v.paid === 'arrears' ? 'Seller credits buyer' : 'Buyer credits seller', p.credit, { big: true }),
+            M('Seller share', p.seller, { sub: p.sellerDays + ' days' }), M('Buyer share', p.buyer, { sub: p.buyerDays + ' days' }), M('Per day', p.daily),
+            I(v.paid === 'arrears' ? 'In arrears: the bill comes after closing, so the seller pays the buyer for the seller\'s days.' : 'In advance: the seller already paid the year, so the buyer repays the buyer\'s days.')];
+        }
+      }]
+    },
+    {
+      id: 'invest', title: 'Investment', desc: 'Cap rate · cash flow · cash-on-cash · DSCR',
+      note: FIN_NOTE,
+      modes: [{
+        id: 'main',
+        fields: [money('price', 'Price', { req: true }), money('rent', 'Rent / mo', { req: true }), money('other', 'Other income / mo'),
+          num('vac', 'Vacancy %', { def: 5 }), money('exp', 'Expenses / yr', { hint: 'tax, insurance, repairs, mgmt' }),
+          num('down', 'Down payment %', { def: 25 }), num('rate', 'Interest rate %', { def: 7 }), num('years', 'Term', { def: 30, tag: 'YR' }), money('closing', 'Closing & rehab')],
+        compute(v) {
+          const r = C.investment({ price: v.price, rentMo: v.rent, otherMo: v.other, vacancyPct: v.vac, expensesYr: v.exp, downPct: v.down, rate: v.rate, years: v.years, closing: v.closing });
+          const rows = [N('Cap rate', r.cap, 2, '%', { big: true }), M('Cash flow / mo', r.flow / 12), M('NOI / yr', r.noi), M('Cash flow / yr', r.flow)];
+          if (r.coc != null) rows.push(N('Cash-on-cash', r.coc, 2, '%'));
+          if (r.dscr != null) rows.push(N('DSCR', r.dscr, 2, '×'));
+          rows.push(N('Gross rent multiplier', r.grm, 2), M('Cash invested', r.cash), M('Debt service / yr', r.debt));
+          if (r.flow < 0) rows.push(W('Negative cash flow.'));
+          else if (r.dscr != null && r.dscr < 1.2) rows.push(W('DSCR under 1.20 — many lenders want 1.20–1.25 or more.'));
+          return rows;
+        }
+      }]
+    },
+    {
+      id: 'conloan', title: 'Construction Loan', desc: 'Interest during the build · draws',
+      note: FIN_NOTE,
+      modes: [
+        {
+          id: 'draws', label: 'Even draws',
+          fields: [money('loan', 'Loan amount', { req: true }), num('rate', 'Interest rate %', { req: true }), num('months', 'Build time', { req: true, tag: 'MO' }),
+            num('pts', 'Points / fees %')],
+          compute(v) {
+            const r = C.constructionInterest({ loan: v.loan, rate: v.rate, months: v.months, pointsPct: v.pts });
+            const rows = [M('Interest during build', r.interest, { big: true }), M('Average balance', r.avgBalance), M('Interest, last month', r.lastMonth)];
+            if (r.points) rows.push(M('Points / fees', r.points), M('Total finance cost', r.interest + r.points));
+            rows.push(I('Assumes equal draws at the start of each month, interest-only on what\'s drawn.'));
+            return rows;
+          }
+        },
+        {
+          id: 'io', label: 'Interest only',
+          fields: [money('bal', 'Amount drawn', { req: true }), num('rate', 'Interest rate %', { req: true })],
+          compute(v) {
+            const yr = v.bal * v.rate / 100;
+            return [M('Monthly interest', yr / 12, { big: true }), M('Per day', yr / 365), M('Per year', yr)];
+          }
+        }
+      ]
+    },
+    {
+      id: 'ppsf', title: 'Price per Sq Ft', desc: '$/sq ft · $/acre · comps',
+      note: FIN_NOTE,
+      modes: [
+        {
+          id: 'per', label: '$ / sq ft & acre',
+          fields: [money('price', 'Price', { req: true }), num('sqft', 'Living area', { tag: 'SQ FT' }), num('acres', 'Lot size', { tag: 'AC' })],
+          compute(v) {
+            if (!(v.sqft > 0) && !(v.acres > 0)) throw new Error('Enter living area or lot size');
+            const r = C.pricePer({ price: v.price, sqft: v.sqft, acres: v.acres });
+            const rows = [];
+            if (r.perSqft != null) rows.push(M('Price per sq ft', r.perSqft, { big: true }));
+            if (r.perAcre != null) rows.push(M('Price per acre', r.perAcre, { big: true }), N('Lot', r.lotSqft, 0, ' sq ft'), M('Price per lot sq ft', v.price / r.lotSqft));
+            return rows;
+          }
+        },
+        {
+          id: 'comps', label: 'Comps',
+          fields: [num('sub', 'Subject living area', { tag: 'SQ FT' }),
+            money('p1', 'Comp 1 price', { req: true }), num('s1', 'Comp 1 area', { req: true, tag: 'SQ FT' }),
+            money('p2', 'Comp 2 price'), num('s2', 'Comp 2 area', { tag: 'SQ FT' }),
+            money('p3', 'Comp 3 price'), num('s3', 'Comp 3 area', { tag: 'SQ FT' })],
+          compute(v) {
+            const r = C.comps([{ price: v.p1, sqft: v.s1 }, { price: v.p2, sqft: v.s2 }, { price: v.p3, sqft: v.s3 }], v.sub);
+            const rows = [];
+            if (r.value != null) rows.push(M('Estimated value', r.value, { big: true }));
+            rows.push(M('Average $/sq ft', r.avg), M('Low $/sq ft', r.low), M('High $/sq ft', r.high));
+            if (r.value == null) rows.push(I('Enter the subject\'s living area for an estimated value.'));
+            return rows;
+          }
+        }
+      ]
     }
+
   ];
   const TOOL = {};
   TOOLS.forEach((t) => { TOOL[t.id] = t; });
@@ -918,7 +1220,17 @@
     sheets: '<rect x="5" y="3" width="14" height="18" rx="1"/><path d="M5 12h14"/>',
     area: '<path d="M4 4h16v16H4z"/><path d="M4 4l16 16"/>',
     circles: '<circle cx="12" cy="12" r="8"/><path d="M12 12h8"/>',
-    convert: '<path d="M5 8h13l-3-3M19 16H6l3 3"/>'
+    convert: '<path d="M5 8h13l-3-3M19 16H6l3 3"/>',
+    markup: '<path d="M4 12l8-8h8v8l-8 8z"/><circle cx="16" cy="8" r="1.4"/>',
+    labor: '<circle cx="12" cy="7" r="3.5"/><path d="M5 20c0-4 3-6.5 7-6.5s7 2.5 7 6.5"/>',
+    offsets: '<path d="M3 17h5l8-10h5"/><path d="M3 21h5M16 3h5"/>',
+    mortgage: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-5h4v5"/>',
+    payoff: '<path d="M4 6l6 6 4-3 6 7"/><path d="M15 16h5v-5"/>',
+    netsheet: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+    proration: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4M12 10v10"/>',
+    invest: '<path d="M4 20h16M7 16v-4M12 16V8M17 16V5"/>',
+    conloan: '<path d="M4 20h16M6 20V9l6-4 6 4v11"/><path d="M9 20v-6h6v6M3 9h18"/>',
+    ppsf: '<path d="M4 4h16v16H4z"/><path d="M4 9h5M4 14h3M9 4v5M14 4v3"/>'
   };
   const JOB_ICON = '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v3H9zM9 11h6M9 15h4"/>';
   const CHEV = svg('<path d="M9 6l6 6-6 6"/>', 'chev');
@@ -927,12 +1239,17 @@
   const LIST_ICON = svg('<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>');
   const ARROW = svg('<path d="M5 12h14M13 6l6 6-6 6"/>');
   const XICON = svg('<path d="M6 6l12 12M18 6L6 18"/>');
-  const GROUPS = [
-    ['Sitework', ['grade', 'dirt', 'gravel']],
-    ['Concrete & Masonry', ['concrete', 'rebar', 'block']],
-    ['Framing', ['rightangle', 'rafters', 'stairs', 'lumber', 'sheets']],
-    ['Geometry & Units', ['area', 'circles', 'convert']]
+  // Trades pick which groups come first on the Tools screen. Search always covers everything.
+  const TRADES = [
+    { id: 'carpentry', name: 'Carpentry & Framing', icon: 'stairs', ex: 'Stairs, rafters, studs, sheet goods', tools: ['rightangle', 'rafters', 'stairs', 'lumber', 'sheets'] },
+    { id: 'concrete', name: 'Concrete & Sitework', icon: 'concrete', ex: 'Yards, rebar, block, dirt, grade', tools: ['concrete', 'rebar', 'block', 'dirt', 'gravel', 'grade'] },
+    { id: 'plumbing', name: 'Plumbing, Pipe & Conduit', icon: 'offsets', ex: 'Offsets, pipe fall, pressure & flow', tools: ['offsets', 'grade'] },
+    { id: 'realestate', name: 'Real Estate & Finance', icon: 'mortgage', ex: 'Mortgage, payoff, net sheet, prorations', tools: ['mortgage', 'payoff', 'netsheet', 'proration', 'invest', 'conloan', 'ppsf'] }
   ];
+  const EVERYDAY = ['convert', 'markup', 'labor', 'area', 'circles'];
+  const TRADE = {};
+  TRADES.forEach((t) => { TRADE[t.id] = t; });
+  const myTrades = () => (settings.trades || []).filter((id) => TRADE[id]);
   const KEYWORDS = {
     rightangle: 'pythagorean diagonal square triangle hypotenuse',
     grade: 'slope percent elevation station pipe sewer drain invert fall',
@@ -947,7 +1264,17 @@
     sheets: 'drywall plywood osb sheathing subfloor',
     area: 'area volume square footage',
     circles: 'circle arc radius chord',
-    convert: 'units metric conversion'
+    convert: 'units metric conversion pressure psi kpa bar head flow gpm cfm temperature fahrenheit celsius weight kg power btu watts kw hp tons energy kwh therms',
+    markup: 'markup margin profit price bid estimate overhead',
+    labor: 'labor crew wage overtime burden man hours payroll bid',
+    offsets: 'pipe conduit offset travel run rolling fitting bend emt electrician plumber pipefitter 45 shrink',
+    mortgage: 'mortgage loan payment piti afford affordability interest rate real estate house',
+    payoff: 'loan payoff extra payment balance amortization interest',
+    netsheet: 'seller net sheet commission split closing real estate agent broker',
+    proration: 'proration prorate property tax hoa closing arrears',
+    invest: 'investment rental cap rate noi cash flow cash on cash dscr grm',
+    conloan: 'construction loan draw interest build',
+    ppsf: 'price per square foot sq ft acre comps value appraisal land'
   };
   let recent = store.get('recent', []);
 
@@ -980,15 +1307,17 @@
   function defaultText(f) {
     const def = defaultOf(f);
     if (def == null) return null;
+    if (f.tag === '$') return Number(def).toLocaleString('en-US', { maximumFractionDigits: 2 });
     return f.kind === 'len' ? fmtLen(def * C.IN[f.unit], f.unit === 'in' ? 'in' : 'ftin') : C.fmtNum(def, 3);
   }
   function placeholderOf(f) { const d = defaultText(f); return d != null ? d : '—'; }
   function unitOf(f) {
     if (f.kind === 'len') return f.unit.toUpperCase();
+    if (f.tag) return f.tag;
     if (/%$/.test(f.label)) return '%';
     return '';
   }
-  const displayName = (f) => unitOf(f) === '%' ? f.label.replace(/\s*%$/, '') : f.label;
+  const displayName = (f) => /%$/.test(f.label) ? f.label.replace(/\s*%$/, '') : f.label;
 
   function fieldHint(f) {
     const parts = [];
@@ -1018,7 +1347,7 @@
     v.classList.remove('placeholder', 'default');
     const chip = $('.unit-chip', el);
     if (chip) chip.hidden = /['"a-z]/i.test(raw);   // a typed unit wins over the default unit
-    if (raw) { v.textContent = raw; return; }
+    if (raw) { v.textContent = f.tag === '$' && /^\d{4,}(\.\d*)?$/.test(raw) ? Number(raw).toLocaleString('en-US', { maximumFractionDigits: 2 }) : raw; return; }
     const d = defaultText(f);
     v.textContent = d != null ? d : '—';
     v.classList.add(d != null ? 'default' : 'placeholder');
@@ -1037,6 +1366,10 @@
     store.set('recent', recent);
     const mode = currentMode(tool);
     $('#toolTitle').textContent = tool.title;
+    const fav = settings.favs.indexOf(id) >= 0;
+    $('#toolFav').classList.toggle('on', fav);
+    $('#toolFav').setAttribute('aria-pressed', fav);
+    $('#toolFav').setAttribute('aria-label', fav ? 'Remove from favorites' : 'Add to favorites');
     let html = '';
     if (tool.modes.length > 1) {
       html += '<div class="' + (tool.modes.length <= 3 ? 'seg' : 'pills') + ' modes" role="tablist" aria-label="Mode">' + tool.modes.map((m) =>
@@ -1054,7 +1387,7 @@
     computeTool();
   }
 
-  const hasValue = (r) => r.len != null || r.area != null || r.vol != null || r.num != null || r.fixed != null || r.text != null;
+  const hasValue = (r) => r.money != null || r.len != null || r.area != null || r.vol != null || r.num != null || r.fixed != null || r.text != null;
 
   function computeTool() {
     const tool = TOOL[curToolId];
@@ -1132,6 +1465,9 @@
         sub = C.fmtNum(r.vol / C.CUYD, 2) + ' cu yd · ' + C.fmtNum(r.vol / C.CUM, 2) + ' cu m';
       }
       tap = { v: r.vol, d: 3 };
+    } else if (r.money != null) {
+      val = C.money(r.money);
+      tap = { v: Math.round(r.money * 100) / 100, d: 0 };
     } else if (r.num != null) {
       val = C.fmtNum(r.num, r.dec == null ? 3 : r.dec) + r.suffix;
       tap = { v: r.num, d: 0 };
@@ -1149,7 +1485,7 @@
   function heroHTML(r, i) {
     const p = rowParts(r);
     return '<div class="hero"' + tapAttrs(p.tap, i) + '>' +
-      '<div class="r-label">' + esc(r.label) + '</div><div class="r-val">' + esc(p.val) + '</div>' +
+      '<div class="r-label">' + esc(r.label) + '</div><div class="r-val' + (String(p.val).length > 10 ? ' long' : '') + '">' + esc(p.val) + '</div>' +
       (p.sub ? '<div class="r-sub">' + esc(p.sub) + '</div>' : '') +
       (p.tap ? '<div class="hero-actions"><button data-act="job">' + PLUS + 'Add to job</button><button data-act="tape">' + LIST_ICON + 'Send to tape</button></div>' : '') +
       '</div>';
@@ -1173,26 +1509,68 @@
   }
 
   // ================================================================ tools list
+  const toolRow = (t) => '<button class="tool-row" data-tool-open="' + t.id + '"><span class="ico">' + svg(ICON[t.id]) + '</span>' +
+    '<span class="names"><span class="n">' + esc(t.title) + '</span><span class="d">' + esc(t.desc) + '</span></span>' + CHEV + '</button>';
+  const groupHTML = (name, ts) => ts.length ? '<h2 class="label">' + esc(name) + '</h2><div class="list">' + ts.map(toolRow).join('') + '</div>' : '';
+
   function renderTools() {
     const q = ($('#toolSearch').value || '').trim().toLowerCase();
-    const match = (t) => !q || (t.title + ' ' + t.desc + ' ' + (KEYWORDS[t.id] || '')).toLowerCase().indexOf(q) >= 0;
     let html = '';
-    const rec = recent.filter((id) => TOOL[id]);
-    if (!q && rec.length) {
+    if (q) {
+      const words = q.split(/\s+/);
+      const hits = TOOLS.filter((t) => {
+        const hay = (t.title + ' ' + t.desc + ' ' + (KEYWORDS[t.id] || '')).toLowerCase();
+        return words.every((w) => hay.indexOf(w) >= 0);
+      });
+      html = hits.length ? groupHTML('Results', hits) : '<p class="no-match">No tools match “' + esc(q) + '”.</p>';
+      $('#tiles').innerHTML = html;
+      return;
+    }
+    const favs = settings.favs.filter((id) => TOOL[id]);
+    if (favs.length) html += groupHTML('Favorites', favs.map((id) => TOOL[id]));
+    const rec = recent.filter((id) => TOOL[id] && favs.indexOf(id) < 0);
+    if (rec.length) {
       html += '<h2 class="label">Recent</h2><div class="recent">' + rec.map((id) =>
         '<button class="recent-card" data-tool-open="' + id + '">' + svg(ICON[id]) + '<span>' + esc(TOOL[id].title) + '</span></button>').join('') + '</div>';
     }
-    let any = false;
-    GROUPS.forEach(([name, ids]) => {
-      const ts = ids.map((id) => TOOL[id]).filter(match);
-      if (!ts.length) return;
-      any = true;
-      html += '<h2 class="label">' + esc(name) + '</h2><div class="list">' + ts.map((t) =>
-        '<button class="tool-row" data-tool-open="' + t.id + '"><span class="ico">' + svg(ICON[t.id]) + '</span>' +
-        '<span class="names"><span class="n">' + esc(t.title) + '</span><span class="d">' + esc(t.desc) + '</span></span>' + CHEV + '</button>').join('') + '</div>';
-    });
-    if (!any) html += '<p class="no-match">No tools match “' + esc(q) + '”.</p>';
+    const mine = myTrades();
+    const shown = {};
+    const take = (ids) => ids.filter((id) => TOOL[id] && !shown[id] && (shown[id] = true));
+    const first = mine.length ? mine.map((id) => TRADE[id]) : TRADES;
+    first.forEach((tr) => { html += groupHTML(tr.name, take(tr.tools).map((id) => TOOL[id])); });
+    html += groupHTML('Everyday', take(EVERYDAY).map((id) => TOOL[id]));
+    if (mine.length) {
+      const others = TRADES.filter((tr) => mine.indexOf(tr.id) < 0);
+      let inner = '';
+      others.forEach((tr) => { inner += groupHTML(tr.name, take(tr.tools).map((id) => TOOL[id])); });
+      if (inner) {
+        html += '<details class="more-trades"' + (moreOpen ? ' open' : '') + '><summary>More trades<span>' + esc(others.map((t) => t.name.split(/[ ,&]/)[0]).join(' · ')) + '</span>' + CHEV + '</summary>' + inner + '</details>';
+      }
+    }
+    html += '<button class="btn-wide trades-link" data-go="welcome">Change your trades</button>';
     $('#tiles').innerHTML = html;
+  }
+  let moreOpen = false;
+  document.addEventListener('toggle', (e) => { if (e.target.classList && e.target.classList.contains('more-trades')) moreOpen = e.target.open; }, true);
+
+  // ================================================================ welcome / trade picker
+  let picking = null;
+  function renderWelcome() {
+    if (!picking) picking = myTrades().slice();
+    const first = !Array.isArray(settings.trades);
+    const html = '<div class="welcome">' +
+      '<div class="brand">JOBSITE CALC</div>' +
+      '<h1 class="page-title">What do you work on?</h1>' +
+      '<p class="lead">Pick your trades and their tools come first. Everything else stays one search away.</p>' +
+      '<div class="list">' + TRADES.map((t) => {
+        const on = picking.indexOf(t.id) >= 0;
+        return '<button class="tool-row trade-pick' + (on ? ' on' : '') + '" data-trade="' + t.id + '" aria-pressed="' + on + '"><span class="ico">' + svg(ICON[t.icon]) + '</span>' +
+          '<span class="names"><span class="n">' + esc(t.name) + '</span><span class="d">' + esc(t.ex) + '</span></span><span class="check" aria-hidden="true">' + svg('<path d="M6 12l4 4 8-8"/>') + '</span></button>';
+      }).join('') + '</div>' +
+      '<p class="note">Everyday tools — converter, markup, labor, area — are always there. Electrical and HVAC tools are coming next.</p>' +
+      '<div class="stack"><button class="btn-primary" id="tradesDone"' + (picking.length ? '' : ' disabled') + '>' + (first ? 'CONTINUE' : 'SAVE') + '</button>' +
+      '<button class="btn-wide" id="tradesAll">Show all tools</button></div></div>';
+    $('#welcomeBody').innerHTML = html;
   }
 
   // ================================================================ jobs
@@ -1244,13 +1622,13 @@
     return parts.join(' · ');
   }
 
-  const ROW_KEYS = ['label', 'len', 'area', 'vol', 'unit', 'num', 'dec', 'suffix', 'fmt'];
+  const ROW_KEYS = ['label', 'money', 'len', 'area', 'vol', 'unit', 'num', 'dec', 'suffix', 'fmt'];
   function plainRow(r) {
     const o = {};
     ROW_KEYS.forEach((k) => { if (r[k] != null) o[k] = r[k]; });
     return o;
   }
-  const rowKind = (r) => r.len != null ? 'len' : r.area != null ? 'area' : r.vol != null ? 'vol' : r.num != null ? 'num' : null;
+  const rowKind = (r) => r.money != null ? 'money' : r.len != null ? 'len' : r.area != null ? 'area' : r.vol != null ? 'vol' : r.num != null ? 'num' : null;
 
   function addHeroToJob() {
     const tool = TOOL[curToolId];
@@ -1383,6 +1761,9 @@
       '<button data-prec="' + p + '" class="' + (p === prec() ? 'on' : '') + '" aria-pressed="' + (p === prec()) + '">1/' + p + '"</button>').join('');
     const sw = 'serviceWorker' in navigator && navigator.serviceWorker.controller;
     $('#settingsBody').innerHTML =
+      '<div class="set-group"><h2 class="label">Your trades</h2><p style="margin-top:0">' +
+      esc(myTrades().length ? myTrades().map((id) => TRADE[id].name).join(' · ') : 'All tools') + '</p>' +
+      '<button class="btn-wide" data-go="welcome">Change trades</button></div>' +
       '<div class="set-group"><h2 class="label">Fraction precision</h2><div class="grid3">' + precBtns + '</div>' +
       '<p>Results round to the nearest 1/' + prec() + '". Math is done at full precision.</p></div>' +
       '<div class="set-group"><h2 class="label">Default waste</h2><div class="fields">' +
@@ -1479,7 +1860,7 @@
   }
 
   // ================================================================ navigation
-  const SCREENS = ['calc', 'tools', 'tool', 'jobs', 'job', 'settings'];
+  const SCREENS = ['calc', 'tools', 'tool', 'jobs', 'job', 'settings', 'welcome'];
 
   function showScreen(name, arg) {
     closeSheet();
@@ -1496,6 +1877,9 @@
     if (a === 't' && TOOL[b]) screen = 'tool';
     else if (a === 'j' && jobById(b)) screen = 'job';
     else if (SCREENS.indexOf(a) < 0 || a === 'tool' || a === 'job') screen = 'calc';
+    if (!Array.isArray(settings.trades)) screen = 'welcome';     // first launch: pick trades
+    if (screen !== 'welcome') picking = null;
+    document.body.classList.toggle('no-tabs', screen === 'welcome');
     closeSheet();
     $('#more').hidden = true;
     SCREENS.forEach((s) => { $('#screen-' + s).hidden = s !== screen; });
@@ -1511,6 +1895,7 @@
     if (screen === 'jobs') renderJobs();
     if (screen === 'job') { renderJob(b); $('#screen-job').scrollTop = 0; }
     if (screen === 'settings') renderSettings();
+    if (screen === 'welcome') { renderWelcome(); $('#screen-welcome').scrollTop = 0; }
   }
 
   // ================================================================ events
@@ -1539,6 +1924,31 @@
       closeSheet();
       if (t.dataset.choice.indexOf('settings.') === 0) return renderSettings();
       return renderTool(curToolId);
+    }
+    if (t.dataset.trade) {
+      const id = t.dataset.trade;
+      picking = picking.indexOf(id) >= 0 ? picking.filter((x) => x !== id) : picking.concat(id);
+      picking = TRADES.map((x) => x.id).filter((x) => picking.indexOf(x) >= 0);
+      buzz();
+      return renderWelcome();
+    }
+    if (t.id === 'tradesDone' || t.id === 'tradesAll') {
+      const firstTime = !Array.isArray(settings.trades);
+      settings.trades = t.id === 'tradesAll' ? [] : picking.slice();
+      saveSettings();
+      picking = null;
+      return showScreen(firstTime ? 'calc' : 'tools');
+    }
+    if (t.id === 'toolFav') {
+      const id = curToolId;
+      const on = settings.favs.indexOf(id) < 0;
+      settings.favs = on ? settings.favs.concat(id) : settings.favs.filter((x) => x !== id);
+      saveSettings();
+      buzz();
+      t.classList.toggle('on', on);
+      t.setAttribute('aria-pressed', on);
+      t.setAttribute('aria-label', on ? 'Remove from favorites' : 'Add to favorites');
+      return toast(on ? 'Added to favorites' : 'Removed from favorites');
     }
     if (t.dataset.act === 'job') return addHeroToJob();
     if (t.dataset.act === 'tape' || t.matches('.row[data-v], .hero[data-v]')) {

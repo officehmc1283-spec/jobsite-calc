@@ -63,7 +63,7 @@ python3 -m http.server 8765 &
 node tests/e2e.test.js
 ```
 
-Last run (Sept 24, 2026): unit tests 81/81 passed, phone test 104/104 passed (includes layout checks on iPhone SE, 14 Pro Max and landscape), no JavaScript errors, offline cold start works.
+Last run (Sept 25, 2026): unit tests 111/111 passed, phone test 125/125 passed (includes layout checks on iPhone SE, 14 Pro Max and landscape), no JavaScript errors, offline cold start works.
 
 `tests/stairs.sweep.js` checks the stair tool against independent math for every total rise from 6" to 20' in 1/16" steps (26,215 cases): `node tests/stairs.sweep.js`.
 
@@ -94,7 +94,17 @@ Tape, settings and tool inputs are kept.
 
 ## Tools
 
-1 Right Angle · 2 Grade & Slope · 3 Rafters · 4 Stairs · 5 Concrete · 6 Excavation · 7 Gravel & Fill · 8 Rebar · 9 Block (CMU) · 10 Lumber · 11 Sheet Goods · 12 Area & Volume · 13 Circles & Arcs · 14 Convert
+1 Right Angle · 2 Grade & Slope · 3 Rafters · 4 Stairs · 5 Concrete · 6 Excavation · 7 Gravel & Fill · 8 Rebar · 9 Block (CMU) · 10 Lumber · 11 Sheet Goods · 12 Area & Volume · 13 Circles & Arcs · 14 Convert · 15 Markup & Margin · 16 Labor Cost · 17 Offsets · 18 Mortgage · 19 Loan Payoff · 20 Seller Net · 21 Proration · 22 Investment · 23 Construction Loan · 24 Price per Sq Ft
+
+### Version 9: trades, favorites, real estate
+
+* **Pick your trades:** on first launch the app asks what you work on (Carpentry & Framing, Concrete & Sitework, Plumbing/Pipe & Conduit, Real Estate & Finance). Those groups come first on the Tools screen, then **Everyday** (Convert, Markup, Labor, Area, Circles). Other trades fold into one **More trades** row. Search always finds every tool. Change trades in Settings or at the bottom of Tools.
+* **Favorites:** tap the ☆ in any tool's header. Favorites sit at the top of Tools.
+* **Convert** now also does pressure (psi, kPa, bar, in Hg, in water, ft of head), flow (gpm, cfm, L/min…), temperature, weight, power (BTU/h, W, kW, hp, tons of cooling) and energy (BTU, kWh, therms).
+* **Markup & Margin**, **Labor Cost** (crew, wage, burden, overtime → total and cost per man-hour).
+* **Offsets** for pipe and conduit: travel, run, multiplier and conduit shrink at 11¼°, 22½°, 30°, 45° or 60°, plus rolling offsets.
+* **Real Estate & Finance:** Mortgage (PITI with PMI, and affordability at 28/36), Loan Payoff (extra payments, balance after N payments), Seller Net (net sheet, commission split), Proration (arrears or advance, 365 or actual days), Investment (NOI, cap rate, cash flow, cash-on-cash, DSCR, GRM), Construction Loan (even draws, interest only), Price per Sq Ft ($/sq ft, $/acre, 3-comp estimate). All finance results are estimates, not a lender quote or financial advice.
+* Money results can be added to a job and are totaled like everything else.
 
 * **Grade & Slope:** *Rise + Run* takes any two of rise, run, grade % or slope ratio (H:1V) and gives grade %, ratio, rise per foot, rise per 100 ft, angle, pitch and slope length.
   *Elevations* takes three of start elevation, end elevation, distance and grade % (with an Up/Down switch), plus an optional station interval for a grade-stake list (0+00, 0+50…).
