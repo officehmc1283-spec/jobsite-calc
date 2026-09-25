@@ -23,6 +23,15 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ ...devices['iPhone 13'], serviceWorkers: 'allow' });
   const page = await ctx.newPage();
+  // Other contexts skip the first-launch trade picker (seeded to "Show all tools").
+  const rawNewContext = browser.newContext.bind(browser);
+  browser.newContext = async (o) => {
+    const c = await rawNewContext(o);
+    await c.addInitScript(() => {
+      if (!localStorage.getItem('jsc.settings')) localStorage.setItem('jsc.settings', JSON.stringify({ trades: [] }));
+    });
+    return c;
+  };
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -66,7 +75,32 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
 
   console.log('Loading app…');
   await page.goto(BASE);
-  await page.waitForSelector('#screen-calc:not([hidden])');
+
+  console.log('\nFirst launch: pick your trades');
+  await test('first launch shows the trade picker with no tab bar', async () => {
+    await page.waitForSelector('#screen-welcome:not([hidden])');
+    eq(await page.isVisible('.tabbar'), false);
+    eq(await page.$$eval('.trade-pick', (t) => t.length), 4);
+    eq(await page.isDisabled('#tradesDone'), true);
+  });
+  await test('any link still lands on the picker until trades are chosen', async () => {
+    await page.goto(BASE + '#/tools');
+    await page.waitForSelector('#screen-welcome:not([hidden])');
+  });
+  await test('pick Carpentry + Real Estate, Continue → calculator', async () => {
+    await page.click('.trade-pick[data-trade="carpentry"]');
+    await page.click('.trade-pick[data-trade="realestate"]');
+    eq(await page.getAttribute('.trade-pick[data-trade="carpentry"]', 'aria-pressed'), 'true');
+    await page.click('.trade-pick[data-trade="realestate"]');
+    eq(await page.getAttribute('.trade-pick[data-trade="realestate"]', 'aria-pressed'), 'false');
+    await page.click('.trade-pick[data-trade="realestate"]');
+    await shot('00-welcome');
+    await page.click('#tradesDone');
+    await page.waitForSelector('#screen-calc:not([hidden])');
+    eq(await page.isVisible('.tabbar'), true);
+    const s = await page.evaluate(() => JSON.parse(localStorage.getItem('jsc.settings')).trades);
+    eq(s.join(), 'carpentry,realestate');
+  });
 
   console.log('\nApp shell / install metadata');
   await test('manifest, apple icon and iOS meta tags present', async () => {
@@ -167,9 +201,14 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
   await shot('02-calc-tape');
 
   console.log('\nTools');
-  await test('tools grid lists all 14 tools', async () => {
+  await test('tools list has every tool once (24), your trades first', async () => {
     await nav('Tools');
-    eq(await page.$$eval('.tool-row', (t) => t.length), 14);
+    eq(await page.$$eval('#tiles .tool-row', (t) => t.length), 24);
+    const heads = await page.$$eval('#tiles > h2.label', (h) => h.map((x) => x.textContent));
+    eq(heads.join('|'), 'Carpentry & Framing|Real Estate & Finance|Everyday');
+    eq(await page.isVisible('.more-trades .tool-row[data-tool-open="concrete"]'), false, 'other trades collapsed');
+    await page.click('.more-trades summary');
+    eq(await page.isVisible('.more-trades .tool-row[data-tool-open="concrete"]'), true);
   });
   await shot('03-tools');
 
@@ -598,11 +637,15 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
   await test('tool search filters the list (keywords too)', async () => {
     await nav('Tools');
     await page.fill('#toolSearch', 'trench');
-    eq(await page.$$eval('.tool-row', (t) => t.map((x) => x.querySelector('.n').textContent).join()), 'Excavation');
+    eq(await page.$$eval('#tiles .tool-row', (t) => t.map((x) => x.querySelector('.n').textContent).join()), 'Excavation');
     await page.fill('#toolSearch', 'zzz');
     has(await page.textContent('#tiles'), 'No tools match');
+    await page.fill('#toolSearch', 'rolling offset');
+    eq(await page.$$eval('#tiles .tool-row', (t) => t.map((x) => x.querySelector('.n').textContent).join()), 'Offsets');
+    await page.fill('#toolSearch', 'cap rate');
+    eq(await page.$$eval('#tiles .tool-row', (t) => t.map((x) => x.querySelector('.n').textContent).join()), 'Investment');
     await page.fill('#toolSearch', '');
-    eq(await page.$$eval('.tool-row', (t) => t.length), 14);
+    eq(await page.$$eval('#tiles .tool-row', (t) => t.length), 24);
   });
   await test('recently used tools show at the top', async () => {
     await openTool('stairs'); await openTool('grade');
@@ -810,6 +853,151 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     const sels = await page.evaluate(() => [...document.styleSheets[0].cssRules].map((r) => r.selectorText).filter(Boolean));
     ['.calc', '.display', '.keypad', '.tabbar', '.tab.active'].forEach((x) => { if (sels.indexOf(x) < 0) throw new Error('missing rule ' + x); });
     if (sels.some((x) => /[;:]\s*\S+\s*;/.test(x) || /position|content/.test(x))) throw new Error('garbled selector found');
+  });
+
+  console.log('\nv9: favorites, new trade tools, real estate');
+  await test('star a tool → it shows under Favorites; unstar removes it', async () => {
+    await openTool('offsets');
+    eq(await page.getAttribute('#toolFav', 'aria-pressed'), 'false');
+    await page.click('#toolFav');
+    eq(await page.getAttribute('#toolFav', 'aria-pressed'), 'true');
+    await nav('Tools');
+    eq(await page.$eval('#tiles > h2.label', (h) => h.textContent), 'Favorites');
+    eq(await page.$eval('#tiles .list .tool-row .n', (n) => n.textContent), 'Offsets');
+    await openTool('offsets'); await page.click('#toolFav');
+    await nav('Tools');
+    eq(await page.$eval('#tiles > h2.label', (h) => h.textContent) === 'Favorites', false);
+  });
+  await test('Settings → Change trades reopens the picker and saves', async () => {
+    await nav('Settings');
+    has(await page.textContent('#settingsBody'), 'Carpentry & Framing · Real Estate & Finance');
+    await page.click('#settingsBody [data-go="welcome"]');
+    await page.waitForSelector('#screen-welcome:not([hidden])');
+    eq(await page.textContent('#tradesDone'), 'SAVE');
+    await page.click('.trade-pick[data-trade="plumbing"]');
+    await page.click('#tradesDone');
+    await page.waitForSelector('#screen-tools:not([hidden])');
+    const heads = await page.$$eval('#tiles > h2.label', (h) => h.map((x) => x.textContent));
+    has(heads.join('|'), 'Plumbing, Pipe & Conduit');
+  });
+  await test('Convert → Pressure: 1 psi = 2.3089 ft of head', async () => {
+    await openTool('convert', 'pressure');
+    await setField('val', '1');
+    eq(await rowVal('ft of head'), '2.3089 ft of head');
+    eq(await rowVal('kPa'), '6.8948 kPa');
+  });
+  await test('Convert → Power: 3 tons = 36,000 BTU/h', async () => {
+    await openTool('convert', 'power');
+    await pick('convert', 'from', 'tonr');
+    await setField('val', '3');
+    eq(await rowVal('BTU/h'), '36,000 BTU/h');
+  });
+  await test('Convert → Temp: 212 °F = 100 °C', async () => {
+    await openTool('convert', 'temp');
+    await setField('val', '212');
+    eq(await rowVal('°C'), '100 °C');
+  });
+  await test('Markup: $1,000 at 25% → $1,250, 20% margin', async () => {
+    await openTool('markup', 'cost');
+    await setField('cost', '1000'); await setField('mk', '25');
+    eq(await rowVal('Sell price'), '$1,250.00');
+    eq(await rowVal('Margin'), '20%');
+  });
+  await test('Labor: 3 × 40 h × $30 + 30% burden + 5 h OT → $5,557.50', async () => {
+    await openTool('labor');
+    await setField('workers', '3'); await setField('hours', '40'); await setField('wage', '30'); await setField('ot', '5');
+    eq(await rowVal('Total labor'), '$5,557.50');
+    eq(await rowVal('Cost per man-hour'), '$41.17');
+  });
+  await test('Offsets: 10" at 45° → travel 14-1/8"; rolling 12 × 9 → true offset 15"', async () => {
+    await openTool('offsets', 'simple');
+    await setField('off', '10');
+    eq(await rowVal('Travel'), '14-1/8"');
+    await openTool('offsets', 'rolling');
+    await setField('set', '12'); await setField('roll', '9');
+    eq(await rowVal('True offset'), '15"');
+    eq(await rowVal('Travel'), '21-3/16"');
+  });
+  await test('Mortgage: $400k, 20% down, 6.5%, tax 3,000, ins 1,200 → $2,372.62', async () => {
+    await openTool('mortgage', 'pay');
+    await setField('price', '400000'); await setField('rate', '6.5'); await setField('tax', '3000'); await setField('ins', '1200');
+    eq(await rowVal('Monthly payment'), '$2,372.62');
+    eq(await rowVal('Principal & interest'), '$2,022.62');
+    has(await page.textContent('#toolBody .field[data-field="price"]'), '400,000');
+    has(await outText(), 'not a lender quote');
+    await shot('20-mortgage');
+  });
+  await test('Mortgage → Affordability gives a max price', async () => {
+    await openTool('mortgage', 'afford');
+    await setField('income', '120000'); await setField('debts', '1000'); await setField('down', '50000'); await setField('rate', '6.5');
+    has(await rowVal('Max price'), '$');
+    has(await outText(), 'total debt ratio');
+  });
+  await test('Loan payoff: extra $200/mo saves time and interest', async () => {
+    await openTool('payoff', 'extra');
+    await setField('bal', '200000'); await setField('rate', '6'); await setField('pmt', '1199.10'); await setField('extra', '200');
+    has(await rowVal('Time saved'), 'yr');
+    has(await rowVal('Interest saved'), '$');
+    await openTool('payoff', 'after');
+    await setField('loan', '200000'); await setField('rate', '6'); await setField('k', '60');
+    eq(await rowVal('Balance'), '$186,108.71');
+  });
+  await test('Seller net $167,000; commission split $8,250', async () => {
+    await openTool('netsheet', 'net');
+    await setField('price', '500000'); await setField('comm', '5'); await setField('payoff', '300000'); await setField('closing', '3000'); await setField('conc', '5000');
+    eq(await rowVal('Net to seller'), '$167,000.00');
+    await openTool('netsheet', 'split');
+    await setField('price', '500000'); await setField('comm', '5'); await setField('fees', '500');
+    eq(await rowVal('Agent net'), '$8,250.00');
+  });
+  await test('Proration: $3,650 in arrears, closing June 15 → seller credits $1,650', async () => {
+    await openTool('proration');
+    await setField('amt', '3650'); await setField('month', '6'); await setField('day', '15'); await setField('year', '2026');
+    eq(await rowVal('Seller credits buyer'), '$1,650.00');
+  });
+  await test('Investment: cap 6.72%, DSCR 1.12', async () => {
+    await openTool('invest');
+    await setField('price', '500000'); await setField('rent', '4000'); await setField('exp', '12000'); await setField('closing', '10000');
+    eq(await rowVal('Cap rate'), '6.72%');
+    eq(await rowVal('DSCR'), '1.12×');
+    eq(await rowVal('Cash-on-cash'), '2.71%');
+  });
+  await test('Construction loan: $400k, 8%, 12 mo → $17,333.33', async () => {
+    await openTool('conloan', 'draws');
+    await setField('loan', '400000'); await setField('rate', '8'); await setField('months', '12');
+    eq(await rowVal('Interest during build'), '$17,333.33');
+  });
+  await test('Price per sq ft: $450k / 2,000 → $225; ½ acre → $900,000/acre', async () => {
+    await openTool('ppsf', 'per');
+    await setField('price', '450000'); await setField('sqft', '2000'); await setField('acres', '.5');
+    eq(await rowVal('Price per sq ft'), '$225.00');
+    eq(await rowVal('Price per acre'), '$900,000.00');
+  });
+  await test('money result adds to a job and totals', async () => {
+    await page.evaluate(() => { localStorage.removeItem('jsc.jobs'); localStorage.removeItem('jsc.activeJob'); });
+    await page.reload();
+    await openTool('markup', 'cost');
+    await setField('cost', '1000'); await setField('mk', '25');
+    dialogAnswer = 'Bid test';
+    await page.click('#outHero [data-act="job"]');
+    await openTool('markup', 'cost');
+    await setField('cost', '500'); await setField('mk', '25');
+    await page.click('#outHero [data-act="job"]');
+    const jobs = await page.evaluate(() => JSON.parse(localStorage.getItem('jsc.jobs')));
+    await page.goto(BASE + '#/j/' + jobs[0].id);
+    await page.waitForSelector('#screen-job:not([hidden])');
+    eq(await page.$eval('#jobBody .hero .r-val', (e) => e.textContent), '$1,875.00');
+  });
+  await test('new tools fit a 320 px phone with no sideways scroll', async () => {
+    const c2 = await browser.newContext({ viewport: { width: 320, height: 568 }, isMobile: true, hasTouch: true });
+    const p2 = await c2.newPage();
+    for (const id of ['mortgage', 'invest', 'offsets', 'convert', 'proration', 'labor']) {
+      await p2.goto(BASE + '#/t/' + id); await p2.waitForSelector('#screen-tool:not([hidden])');
+      const o = await p2.evaluate(() => ({ sw: document.documentElement.scrollWidth, w: innerWidth, bw: document.querySelector('#screen-tool').scrollWidth, cw: document.querySelector('#screen-tool').clientWidth }));
+      if (o.sw > o.w || o.bw > o.cw) throw new Error(id + ' overflows sideways');
+    }
+    await p2.goto(BASE + '#/tools'); await p2.waitForSelector('#screen-tools:not([hidden])');
+    await c2.close();
   });
 
   console.log('\nErrors');

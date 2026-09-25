@@ -342,6 +342,80 @@
   test('arc from radius & chord', () => near(C.arcFromRadiusChord(10, 20).deg, 180));
   test('circle', () => near(C.circle(10).circumference, 10 * Math.PI));
 
+
+  // ---------------------------------------------------------------- money & real estate
+  test('money format', () => { eq(C.money(1234.5), '$1,234.50'); eq(C.money(-5), '-$5.00'); eq(C.money(0), '$0.00'); });
+  test('mortgage payment 320k 6.5% 30yr', () => near(C.payment(320000, 6.5, 30), 2022.62, 0.01));
+  test('zero-rate payment', () => near(C.payment(12000, 0, 1), 1000));
+  test('mortgage PITI', () => {
+    const m = C.mortgage({ price: 400000, downPct: 20, rate: 6.5, years: 30, taxYr: 3000, insYr: 1200, pmiPct: 0.5 });
+    near(m.loan, 320000); near(m.pi, 2022.62, 0.01); eq(m.pmi, 0); near(m.total, 2372.62, 0.01);
+  });
+  test('mortgage PMI only above 80% LTV', () => {
+    const m = C.mortgage({ price: 400000, downPct: 10, rate: 6.5, years: 30, pmiPct: 0.6 });
+    near(m.pmi, 360000 * 0.006 / 12, 0.001);
+  });
+  test('balance after all payments is zero', () => near(C.balanceAfter(200000, 6, 30, 360), 0, 0.01));
+  test('balance after 60 payments', () => near(C.balanceAfter(200000, 6, 30, 60), 186108.71, 0.05));
+  test('payoff without extra matches term', () => {
+    const pmt = C.payment(200000, 6, 30);
+    const p = C.payoff(200000, 6, pmt, 0, 0);
+    eq(p.months, 360); near(p.interest, pmt * 360 - 200000, 1);
+  });
+  test('payoff with extra is faster', () => {
+    const pmt = C.payment(200000, 6, 30);
+    const p = C.payoff(200000, 6, pmt, 200, 0);
+    if (!(p.months < 300)) throw new Error('months ' + p.months);
+  });
+  test('payoff errors if payment below interest', () => throws(() => C.payoff(200000, 6, 900, 0, 0), /interest/));
+  test('months text', () => { eq(C.monthsText(291), '24 yrs 3 mo'); eq(C.monthsText(12), '1 yr'); eq(C.monthsText(5), '5 mo'); });
+  test('affordability limited by back ratio', () => {
+    const a = C.affordability({ incomeYr: 120000, debtsMo: 1000, down: 50000, rate: 6.5, years: 30, taxInsPct: 1.2 });
+    eq(a.limitedBy, 'back'); near(a.budget, 2600);
+    near(a.pi + a.taxIns, 2600, 0.01);
+  });
+  test('seller net', () => near(C.sellerNet({ price: 500000, commPct: 5, payoff: 300000, closing: 3000, concessions: 5000 }).net, 167000));
+  test('commission split', () => {
+    const c = C.commissionSplit({ price: 500000, commPct: 5, sidePct: 50, splitPct: 70, fees: 500 });
+    near(c.side, 12500); near(c.agent, 8750); near(c.broker, 3750); near(c.net, 8250);
+  });
+  test('day of year', () => { eq(C.dayOfYear(2026, 6, 15), 166); eq(C.dayOfYear(2024, 3, 1), 61); throws(() => C.dayOfYear(2026, 2, 30)); });
+  test('proration in arrears, closing day to buyer', () => {
+    const p = C.proration({ amount: 3650, year: 2026, month: 6, day: 15, basis: 365, closingDayBuyer: true, arrears: true });
+    eq(p.sellerDays, 165); near(p.seller, 1650); near(p.credit, 1650);
+  });
+  test('proration in advance credits buyer days to seller', () => {
+    const p = C.proration({ amount: 3650, year: 2026, month: 6, day: 15, basis: 365, closingDayBuyer: false, arrears: false });
+    eq(p.sellerDays, 166); near(p.credit, 1990);
+  });
+  test('investment metrics', () => {
+    const r = C.investment({ price: 500000, rentMo: 4000, vacancyPct: 5, expensesYr: 12000, downPct: 25, rate: 7, years: 30, closing: 10000 });
+    near(r.noi, 33600); near(r.cap, 6.72); near(r.coc, 2.71, 0.01); near(r.dscr, 1.12, 0.01); near(r.grm, 10.42, 0.01);
+  });
+  test('construction interest, even draws', () => {
+    const r = C.constructionInterest({ loan: 400000, rate: 8, months: 12, pointsPct: 1 });
+    near(r.interest, 17333.33, 0.01); near(r.points, 4000);
+  });
+  test('price per sq ft and acre', () => {
+    const r = C.pricePer({ price: 450000, sqft: 2000, acres: 0.5 });
+    near(r.perSqft, 225); near(r.perAcre, 900000); near(r.lotSqft, 21780);
+  });
+  test('comps', () => {
+    const r = C.comps([{ price: 400000, sqft: 2000 }, { price: 500000, sqft: 2000 }, { price: 0, sqft: 0 }], 1800);
+    near(r.avg, 225); near(r.low, 200); near(r.high, 250); near(r.value, 405000);
+  });
+
+  // ---------------------------------------------------------------- bidding, offsets, units
+  test('markup from cost', () => { const r = C.markupFromCost(1000, 25); near(r.price, 1250); near(r.margin, 20); });
+  test('margin from cost', () => { const r = C.markupFromCost(1000, null, 20); near(r.price, 1250); near(r.markup, 25); });
+  test('margin from price', () => near(C.marginFromPrice(1000, 1250).margin, 20));
+  test('labor cost', () => { const r = C.laborCost({ workers: 3, hours: 40, wage: 30, burdenPct: 30, otHours: 5, otMult: 1.5 }); near(r.total, 5557.5); near(r.perHour, 41.17, 0.01); });
+  test('pipe offset 45°', () => { const r = C.pipeOffset(10, 45); near(r.travel, 14.142, 0.001); near(r.run, 10); });
+  test('rolling offset', () => { const r = C.rollingOffset(12, 9, 45); near(r.trueOffset, 15); near(r.travel, 21.21, 0.01); });
+  test('pressure: 1 psi = 2.309 ft head', () => near(C.convertUnits('pressure', 1, 'psi').find((u) => u.id === 'fthead').value, 2.30892, 1e-4));
+  test('power: 1 ton = 12,000 BTU/h = 3.517 kW', () => near(C.convertUnits('power', 1, 'tonr').find((u) => u.id === 'kw').value, 3.5169, 1e-3));
+  test('temperature', () => { near(C.convertTemp(212, 'f').c, 100); near(C.convertTemp(0, 'c').f, 32); near(C.convertTemp(0, 'k').c, -273.15); });
+
   // ---------------------------------------------------------------- report
   failures.forEach((f) => log('FAIL  ' + f));
   log(pass + ' passed, ' + fail + ' failed');
