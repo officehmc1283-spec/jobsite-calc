@@ -206,6 +206,8 @@
     let s = x.toFixed(dec);
     if (s.indexOf('.') >= 0) s = s.replace(/\.?0+$/, '');
     if (s === '-0') s = '0';
+    // 12184515 → 12,184,515 (5+ digit numbers only, so elevations like 7703.45 stay plain)
+    if (Math.abs(x) >= 10000) s = s.replace(/^(-?\d+)/, (m) => m.replace(/\B(?=(\d{3})+(?!\d))/g, ','));
     return s;
   }
 

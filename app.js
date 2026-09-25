@@ -2,6 +2,7 @@
 (function () {
   'use strict';
   const C = window.Calc;
+  const APP_VERSION = '5';
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -36,7 +37,7 @@
 
   function applyTheme() {
     document.documentElement.dataset.theme = settings.theme;
-    $('meta[name="theme-color"]').setAttribute('content', settings.theme === 'dark' ? '#000000' : '#ffffff');
+    $('meta[name="theme-color"]').setAttribute('content', '#000000');
   }
 
   const buzz = () => { if (navigator.vibrate) navigator.vibrate(8); };
@@ -68,7 +69,7 @@
       return;
     }
     ol.innerHTML = tape.map((t, i) =>
-      '<li data-i="' + i + '"><div class="t-expr">' + esc(t.e) + '</div><div class="t-res">= ' +
+      '<li data-i="' + i + '" role="button" tabindex="0"><div class="t-expr">' + esc(t.e) + '</div><div class="t-res">= ' +
       esc(fmtVal({ v: t.v, d: t.d })) + '</div></li>').join('');
     ol.scrollTop = ol.scrollHeight;
   }
@@ -954,7 +955,7 @@
     $('#toolTitle').textContent = tool.title;
     let html = '';
     if (tool.modes.length > 1) {
-      html += '<div class="seg">' + tool.modes.map((m) =>
+      html += '<div class="seg modes">' + tool.modes.map((m) =>
         '<button data-mode="' + m.id + '" class="' + (m === mode ? 'on' : '') + '">' + esc(m.label) + '</button>').join('') + '</div>';
     }
     html += '<div class="fields">' + mode.fields.map((f) => fieldHTML(id, f)).join('') + '</div>';
@@ -1044,7 +1045,7 @@
     } else {
       val = r.text;
     }
-    return '<div class="row' + (r.big ? ' big' : '') + '"' + (tap ? ' data-v="' + tap.v + '" data-d="' + tap.d + '" data-i="' + i + '"' : '') + '>' +
+    return '<div class="row' + (r.big ? ' big' : '') + '"' + (tap ? ' data-v="' + tap.v + '" data-d="' + tap.d + '" data-i="' + i + '" role="button" tabindex="0"' : '') + '>' +
       '<div class="r-label">' + esc(r.label) + '</div><div class="r-val">' + esc(val) + '</div>' +
       (sub ? '<div class="r-sub">' + esc(sub) + '</div>' : '') + '</div>';
   }
@@ -1078,7 +1079,8 @@
       '<div class="set-group"><h2>Data</h2>' +
       '<button class="btn-wide" id="resetInputs">Clear all tool inputs</button>' +
       '<button class="btn-wide danger" id="clearTape2">Clear calculator tape (' + tape.length + ')</button></div>' +
-      '<div class="set-group"><h2>Offline</h2><p>' + (sw ? '✓ Saved for offline use. Works with no signal.' : 'Not cached yet. Open once over https (e.g. GitHub Pages) and reload to enable offline use.') + '</p></div>';
+      '<div class="set-group"><h2>Offline</h2><p>' + (sw ? '✓ Saved for offline use. Works with no signal.' : 'Not cached yet. Open once over https (e.g. GitHub Pages) and reload to enable offline use.') + '</p></div>' +
+      '<p class="about">Jobsite Calc · version ' + APP_VERSION + '</p>';
     $$('.field', $('#settingsBody')).forEach((el) => paintField(el, SETTINGS_FIELDS.find((f) => f.id === el.dataset.field)));
   }
 
@@ -1120,7 +1122,9 @@
     if (!active) return;
     $('#sheetLabel').textContent = active.f.label + (fieldHint(active.f) ? ' — ' + fieldHint(active.f) : '');
     const raw = inputs[active.key] || '';
-    $('#sheetVal').textContent = raw || ' ';
+    const v = $('#sheetVal');
+    v.textContent = raw || placeholderOf(active.f);
+    v.classList.toggle('placeholder', !raw);
   }
 
   function fieldKeyPress(k) {

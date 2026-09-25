@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Jobsite Calc">
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -34,7 +34,7 @@
 
     <div class="display" id="display">
       <div class="expr" id="expr"></div>
-      <div class="result" id="result">0</div>
+      <div class="result" id="result" aria-live="polite">0</div>
       <div class="meta"><span id="modeLabel">FT-IN-FRAC</span><span id="precLabel">1/16"</span></div>
     </div>
 
@@ -143,7 +143,7 @@
 
       <button data-fk="0" class="k">0</button>
       <button data-fk="." class="k">.</button>
-      <button data-fk=" " class="k fn sm">space</button>
+      <button data-fk=" " class="k fn sm" aria-label="Space">Space</button>
       <button data-fk="+" class="k op">+</button>
       <button data-fk="next" class="k eq sm">Next</button>
     </div>

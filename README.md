@@ -63,7 +63,7 @@ python3 -m http.server 8765 &
 node tests/e2e.test.js
 ```
 
-Last run (Sept 24, 2026): unit tests 81/81 passed, phone test 80/80 passed, no JavaScript errors, offline cold start works.
+Last run (Sept 24, 2026): unit tests 81/81 passed, phone test 86/86 passed (includes layout checks on iPhone SE, 14 Pro Max and landscape), no JavaScript errors, offline cold start works.
 
 `tests/stairs.sweep.js` checks the stair tool against independent math for every total rise from 6" to 20' in 1/16" steps (26,215 cases): `node tests/stairs.sweep.js`.
 
@@ -104,6 +104,14 @@ Tape, settings and tool inputs are kept.
 * **Rebar:** slab grid both ways, or continuous footing bars with dowels. Gives LF, stock bars, weight and lap splices.
 * **Block (CMU):** block count, courses, mortar bags and solid grout.
 * **Concrete** gained Wall, Thick-edge slab and Pads, and every concrete result now shows 10-yd truck count.
+
+## Look & feel (version 5)
+
+* Black header with a yellow rule in both themes. It sits under the iPhone status bar, so the clock and battery stay readable.
+* Every button is at least 44 px (Apple's minimum). Keys shrink a little on small phones (SE/mini) so the tape keeps its space.
+* Landscape: tape and display on the left, keypad on the right, and a 2-row field keypad.
+* Numbers of 10,000 and up get commas (elevations like 7703.45 stay plain). A long press doesn't pop up text selection.
+* New square-and-rule home-screen icon. Settings shows the version number so you can confirm an update reached the phone.
 
 ## Notes
 

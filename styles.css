@@ -55,10 +55,14 @@ body {
   flex-direction: column;
   height: 100dvh;
   overflow: hidden;
-  padding-top: env(safe-area-inset-top);
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;       /* no text-selection magnifier on long press */
+  user-select: none;
+  -webkit-touch-callout: none;
 }
+:focus { outline: none; }
+:focus-visible { outline: 3px solid var(--unit); outline-offset: 2px; }
 button {
   font: inherit;
   color: inherit;
@@ -74,19 +78,21 @@ button {
   display: grid;
   grid-template-columns: 1fr 1fr 64px;
   gap: var(--gap);
-  padding: var(--gap) max(var(--gap), env(safe-area-inset-left)) var(--gap);
-  border-bottom: 3px solid var(--line);
+  padding: calc(var(--gap) + env(safe-area-inset-top)) max(var(--gap), env(safe-area-inset-right)) var(--gap) max(var(--gap), env(safe-area-inset-left));
+  background: #000;
+  border-bottom: 3px solid var(--accent);
   flex: none;
 }
 .nav {
   height: 48px;
-  border: 3px solid var(--line);
+  border: 2px solid #5a5a5a;
   border-radius: var(--radius);
-  background: var(--bg);
+  background: #1c1c1c;
+  color: #fff;
   font-size: 20px;
   font-weight: 800;
 }
-.nav.active { background: var(--accent); color: var(--accent-fg); border-color: #000; }
+.nav.active { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 
 /* ---------- screens ---------- */
 .screen { flex: 1; min-height: 0; }
@@ -123,7 +129,7 @@ body.sheet-open .screen.scroll { padding-bottom: 60vh; }
   text-transform: uppercase;
   letter-spacing: .04em;
   color: var(--muted);
-  padding: 2px 10px;
+  padding: 0 4px 0 10px;
   border-bottom: 1px solid var(--line);
 }
 .link {
@@ -131,7 +137,9 @@ body.sheet-open .screen.scroll { padding-bottom: 60vh; }
   border: 0;
   text-decoration: underline;
   font-weight: 800;
-  padding: 6px 4px;
+  min-height: 44px;
+  min-width: 56px;
+  padding: 0 6px;
   font-size: 15px;
 }
 .tape {
@@ -289,6 +297,8 @@ body.sheet-open .screen.scroll { padding-bottom: 60vh; }
   font-size: 17px;
 }
 .seg button.on { background: var(--fg); color: var(--bg); }
+.seg.modes { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+.seg.modes button { padding: 4px 6px; font-size: 16px; line-height: 1.15; }
 
 .fields { display: grid; gap: 8px; margin-bottom: 14px; }
 .field {
@@ -365,6 +375,7 @@ body.sheet-open .screen.scroll { padding-bottom: 60vh; }
   margin-bottom: var(--gap);
   align-items: stretch;
 }
+.sheet-head .k { height: auto; min-height: var(--key-h); }
 .sheet-info {
   background: var(--display);
   color: var(--display-fg);
@@ -374,6 +385,8 @@ body.sheet-open .screen.scroll { padding-bottom: 60vh; }
 }
 .sheet-label { font-size: 13px; color: #ddd; }
 .sheet-val { font-size: 26px; font-weight: 800; min-height: 32px; overflow-wrap: anywhere; }
+.sheet-val.placeholder { color: #9a9a9a; font-size: 20px; font-weight: 700; }
+.fkeys .k.sm { font-size: 17px; }
 .sheet.no-units .u-only { visibility: hidden; }
 
 /* ---------- settings ---------- */
@@ -391,6 +404,7 @@ body.sheet-open .screen.scroll { padding-bottom: 60vh; }
   margin-bottom: 8px;
 }
 .btn-wide.danger { border-color: var(--danger); color: var(--danger); }
+.about { font-size: 13px; color: var(--muted); text-align: center; margin-top: 24px; }
 .seg.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); }
 
 /* ---------- toast ---------- */
@@ -415,7 +429,42 @@ body.sheet-open .screen.scroll { padding-bottom: 60vh; }
   .sheet { max-width: 560px; margin: 0 auto; }
   .tiles { grid-template-columns: repeat(3, 1fr); }
 }
-@media (max-height: 640px) {
-  :root { --key-h: 50px; }
-  .display .result { font-size: 30px; }
+/* Short phones (iPhone SE / mini): shrink keys so the tape keeps a few lines */
+@media (max-height: 700px) {
+  :root { --key-h: 48px; --gap: 5px; }
+  .display .result { font-size: 32px; }
+  .display .expr { font-size: 17px; min-height: 22px; }
+  .k { font-size: 25px; }
+  .k.op, .k.eq { font-size: 30px; }
+  .nav { height: 44px; }
 }
+/* Landscape phones: tape + display on the left, keypad on the right */
+@media (orientation: landscape) and (max-height: 500px) {
+  :root { --key-h: calc((100dvh - 88px - env(safe-area-inset-bottom)) / 6.3); }
+  body { max-width: none; margin: 0; border: 0; }
+  .topbar { grid-template-columns: 1fr 1fr 64px; padding-top: var(--gap); }
+  .nav { height: 44px; font-size: 18px; }
+  .calc {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    grid-template-rows: 1fr auto;
+    column-gap: 8px;
+  }
+  .calc .tape-wrap { grid-column: 1; grid-row: 1; min-height: 0; }
+  .calc .display { grid-column: 1; grid-row: 2; }
+  .calc .keypad { grid-column: 2; grid-row: 1 / 3; align-self: end; }
+  .display .result { font-size: 30px; }
+  .k { font-size: 22px; }
+  .k.op, .k.eq { font-size: 26px; }
+  .k.sm, .k.unit { font-size: 17px; }
+  .more { left: auto; width: 54%; }
+  .sheet { max-width: none; }
+  .sheet .fkeys { grid-template-columns: repeat(10, 1fr); }
+  .sheet { --key-h: 44px; }
+  body.sheet-open .screen.scroll { padding-bottom: 50vh; }
+}
+
+/* Night theme: colored keys keep their full size (black borders vanish on black) */
+:root[data-theme="dark"] .k.unit { border-color: var(--unit); }
+:root[data-theme="dark"] .k.eq { border-color: var(--accent); }
+:root[data-theme="dark"] .row.big { border-color: #555; }
