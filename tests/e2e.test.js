@@ -26,18 +26,20 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  page.on('dialog', (d) => d.accept());
+  let dialogAnswer;  // set before an action whose prompt needs a specific answer
+  page.on('dialog', (d) => { const v = dialogAnswer; dialogAnswer = undefined; return v !== undefined ? d.accept(v) : d.accept(); });
 
   const shot = async (n) => { if (SHOTS) await page.screenshot({ path: SHOTS + '/' + n + '.png' }); };
-  const keys = async (...ks) => { for (const k of ks) await page.click(`#keypad [data-k="${k}"], #more [data-k="${k}"]`); };
+  const keys = async (...ks) => { for (const k of ks) await page.click(`#screen-calc [data-k="${k}"]:visible >> nth=0`); };
   const result = () => page.textContent('#result');
-  const tapeLast = () => page.$eval('#tape li:last-child .t-res', (e) => e.textContent);
+  const tapeLast = () => page.$eval('#tape li:last-child', (e) => e.textContent);
 
   // Field entry through the on-screen field keypad
   async function setField(fieldId, text) {
     await page.click(`#toolBody .field[data-field="${fieldId}"]`);
     await page.click('#fkeys [data-fk="clr"]');
     for (const ch of text) {
+      if (ch === ' ') continue;   // FT / IN keys add their own spacing
       const k = ch === "'" ? 'ft' : ch === '"' ? 'in' : ch;
       await page.click(`#fkeys [data-fk="${k}"]`);
     }
@@ -52,11 +54,11 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     if (mode) await page.click(`#toolBody [data-mode="${mode}"]`);
     await page.click('#toolClear');
   }
-  const rowVal = (label) => page.$$eval('#out .row', (rows, label) => {
+  const rowVal = (label) => page.$$eval('#toolBody .row, #toolBody .hero', (rows, label) => {
     const r = rows.find((x) => (x.querySelector('.r-label') || {}).textContent === label);
     return r ? r.querySelector('.r-val').textContent : 'MISSING ROW ' + label;
   }, label);
-  const outText = () => page.textContent('#out');
+  const outText = () => page.textContent('#toolBody');
   async function nav(which) {
     await page.click('#nav' + which);
     await page.waitForSelector('#screen-' + which.toLowerCase() + ':not([hidden])');
@@ -102,7 +104,7 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
   await test('12\' 7-3/8" + 4\' 9-11/16" = 17\' 5-1/16"', async () => {
     await keys('ac', '1', '2', 'ft', '7', 'in', '3', '/', '8', '+', '4', 'ft', '9', 'in', '1', '1', '/', '1', '6', '=');
     eq(await result(), `17' 5-1/16"`);
-    eq(await tapeLast(), `= 17' 5-1/16"`);
+    eq(await tapeLast(), `17' 5-1/16"`);
   });
   await test('operator after = continues from the result', async () => {
     await keys('÷', '2', '=');
@@ -132,7 +134,7 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     eq(await result(), `12' 0"`);
   });
   await test('More panel: x² and parentheses', async () => {
-    await keys('ac', '(', '3', 'ft', '+', '1', 'ft', ')', 'more', '²', '=');
+    await keys('ac', 'more', '(', '3', 'ft', '+', '1', 'ft', 'more', ')', 'more', '²', '=');
     eq(await result(), '16 sq ft');
   });
   await test('± negates', async () => {
@@ -167,7 +169,7 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
   console.log('\nTools');
   await test('tools grid lists all 14 tools', async () => {
     await nav('Tools');
-    eq(await page.$$eval('.tile', (t) => t.length), 14);
+    eq(await page.$$eval('.tool-row', (t) => t.length), 14);
   });
   await shot('03-tools');
 
@@ -214,7 +216,7 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
   });
   await test('Stairs: 9\' 1 1/2" entered with Ft/In keys → 15 risers @ 7-5/16"', async () => {
     await openTool('stairs');
-    await setField('totalRise', `9' 1 1/2"`);
+    await setField('totalRise', `9' 1" 1/2`);
     eq(await rowVal('Risers'), '15');
     eq(await rowVal('Treads'), '14');
     eq(await rowVal('Riser height'), `7-5/16"`);
@@ -252,9 +254,9 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
   await test('Stairs: result tap sends riser height to tape', async () => {
     await openTool('stairs');
     await setField('totalRise', '108');
-    await page.click('#out .row:has(.r-label:text-is("Riser height"))');
+    await page.click('#toolBody .row:has(.r-label:text-is("Riser height"))');
     await nav('Calc');
-    eq(await tapeLast(), '= 7-11/16"');
+    eq(await tapeLast(), '7-11/16"');
   });
   await shot('05-stairs');
   await test('Concrete slab 20\'×20\'×4" + 10% = 5.43 cu yd', async () => {
@@ -511,15 +513,15 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
   });
   await test('bad field input is flagged, not a crash', async () => {
     await openTool('area', 'rect');
-    await setField('al', '5+'); await setField('aw', '2');
+    await setField('al', '5/'); await setField('aw', '2');
     has(await outText(), 'finish the entry');
   });
   await test('tapping a result sends it to the tape', async () => {
     await openTool('area', 'rect');
     await setField('al', '12'); await setField('aw', '10');
-    await page.click('#out .row.big');
+    await page.click('#toolBody .hero');
     await nav('Calc');
-    eq(await tapeLast(), '= 120 sq ft');
+    eq(await tapeLast(), '120 sq ft');
   });
   await test('Ans key puts the last calculator result into a field', async () => {
     await keys('ac', '8', 'ft', '=');
@@ -583,10 +585,124 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     const p2 = await ctx.newPage();
     await p2.goto(BASE);
     await p2.waitForSelector('#screen-calc:not([hidden])');
-    const ok = await p2.evaluate(() => typeof window.Calc === 'object' && getComputedStyle(document.body).fontWeight === '600');
+    const ok = await p2.evaluate(() => typeof window.Calc === 'object' && getComputedStyle(document.querySelector('.tabbar')).display === 'grid');
     eq(ok, true, 'scripts+styles loaded offline');
     await p2.close();
     await ctx.setOffline(false);
+  });
+
+  console.log('\nRedesign: navigation, search, jobs');
+  await test('bottom tabs switch screens and mark the active tab', async () => {
+    await nav('Tools'); eq(await page.getAttribute('#navTools', 'aria-current'), 'page');
+    await nav('Jobs'); eq(await page.getAttribute('#navJobs', 'aria-current'), 'page');
+    await nav('Calc'); eq(await page.getAttribute('#navCalc', 'aria-current'), 'page');
+  });
+  await test('tool search filters the list (keywords too)', async () => {
+    await nav('Tools');
+    await page.fill('#toolSearch', 'trench');
+    eq(await page.$$eval('.tool-row', (t) => t.map((x) => x.querySelector('.n').textContent).join()), 'Excavation');
+    await page.fill('#toolSearch', 'zzz');
+    has(await page.textContent('#tiles'), 'No tools match');
+    await page.fill('#toolSearch', '');
+    eq(await page.$$eval('.tool-row', (t) => t.length), 14);
+  });
+  await test('recently used tools show at the top', async () => {
+    await openTool('stairs'); await openTool('grade');
+    await nav('Tools');
+    const rec = await page.$$eval('.recent-card span', (x) => x.map((e) => e.textContent));
+    eq(rec[0], 'Grade & Slope'); eq(rec[1], 'Stairs');
+  });
+  await test('header chips: precision cycles, units chip cycles like CONV', async () => {
+    await nav('Calc');
+    await keys('ac', '1', 'ft', '=');
+    const before = await page.textContent('#precLabel');
+    await page.click('#precLabel');
+    const after = await page.textContent('#precLabel');
+    if (before === after) throw new Error('precision chip did not change');
+    while ((await page.textContent('#precLabel')) !== '1/16"') await page.click('#precLabel');
+    eq(await page.textContent('#modeLabel'), 'FT-IN');
+    await page.click('#modeLabel');
+    eq(await page.textContent('#modeLabel'), 'IN-FRAC');
+    eq(await result(), '12"');
+    for (let i = 0; i < 7; i++) await page.click('#modeLabel');
+    eq(await page.textContent('#modeLabel'), 'FT-IN');
+  });
+  await test('display shows decimal feet and inches underneath', async () => {
+    await keys('ac', '1', '7', 'ft', '5', 'in', '1', '/', '1', '6', '=');
+    eq(await page.textContent('#metaL'), "17.4219'");
+    eq(await page.textContent('#metaR'), '209.0625"');
+  });
+  await test('entry keypad: NEXT names the next field and moves to it', async () => {
+    await openTool('concrete', 'slab');
+    await page.click('#toolBody .field[data-field="L"]');
+    has(await page.textContent('#nextKey'), 'NEXT: WIDTH');
+    await page.click('#fkeys [data-fk="2"]'); await page.click('#fkeys [data-fk="0"]');
+    await page.click('#fkeys [data-fk="next"]');
+    eq(await page.textContent('#sheetLabel'), 'Width');
+    await page.click('#fkeys [data-fk="2"]'); await page.click('#fkeys [data-fk="0"]');
+    await page.click('.sheet [data-fk="done"]');
+    eq(await rowVal('Concrete to order'), '5.43 cu yd');
+  });
+  await test('unit tag hides when a unit is typed', async () => {
+    await openTool('area', 'rect');
+    await setField('al', `12'`);
+    eq(await page.$eval('.field[data-field="al"] .unit-chip', (e) => e.hidden), true);
+    await setField('al', '12');
+    eq(await page.$eval('.field[data-field="al"] .unit-chip', (e) => e.hidden), false);
+  });
+  await test('Daylight: result card stays dark with yellow answer', async () => {
+    await nav('Settings'); await page.click('[data-theme-set="light"]');
+    await openTool('area', 'rect'); await setField('al', '12'); await setField('aw', '10');
+    const c = await page.$eval('#toolBody .hero', (e) => [getComputedStyle(e).backgroundColor, getComputedStyle(e.querySelector('.r-val')).color]);
+    eq(c.join(' | '), 'rgb(17, 19, 21) | rgb(255, 196, 0)');
+    await nav('Settings'); await page.click('[data-theme-set="dark"]');
+  });
+  await test('Jobs: slab + footing + pads roll up to 14.23 cu yd, 2 trucks', async () => {
+    await page.evaluate(() => { localStorage.removeItem('jsc.jobs'); localStorage.removeItem('jsc.activeJob'); });
+    await page.reload(); await page.waitForSelector('.tabbar');
+    await openTool('concrete', 'slab');
+    await setField('L', '24'); await setField('W', '24');
+    await page.click('#toolBody [data-act="job"]');          // first add: names a new job (dialog accepted)
+    await openTool('concrete', 'footing');
+    await setField('L', '96');
+    await page.click('#toolBody [data-act="job"]');
+    await openTool('concrete', 'pads');
+    await setField('qty', '6');
+    await page.click('#toolBody [data-act="job"]');
+    await nav('Jobs');
+    eq(await page.$$eval('[data-job-open]', (x) => x.length), 1);
+    has(await page.textContent('#jobsBody'), '3 items');
+    await page.click('[data-job-open]');
+    await page.waitForSelector('#screen-job:not([hidden])');
+    eq(await page.textContent('#jobBody .hero .r-val'), '14.23 cu yd');
+    has(await page.textContent('#jobBody .mini'), '12.94 yd');
+    has(await page.textContent('#jobBody .mini'), '2 @ 10 yd');
+    const vals = await page.$$eval('#jobBody .item-row .v', (x) => x.map((e) => e.textContent));
+    eq(vals.join(' + '), '7.82 cu yd + 5.43 cu yd + 0.98 cu yd');
+  });
+  await test('Jobs: removing an item updates the total; takeoff text is right', async () => {
+    await page.click('#jobBody .item-row:last-child [data-remove]');
+    eq(await page.textContent('#jobBody .hero .r-val'), '13.25 cu yd');
+    const text = await page.evaluate(() => {
+      const jobs = JSON.parse(localStorage.getItem('jsc.jobs'));
+      return jobs[0].items.length;
+    });
+    eq(text, 2);
+  });
+  await test('Jobs: rename and delete', async () => {
+    dialogAnswer = 'Lot 12 Garage';
+    await page.click('#jobRename');
+    eq(await page.textContent('#jobTitle'), 'Lot 12 Garage');
+    await page.click('#jobDelete');
+    await page.waitForSelector('#screen-jobs:not([hidden])');
+    has(await page.textContent('#jobsBody'), 'No jobs yet');
+  });
+  await test('Jobs survive a reload', async () => {
+    await openTool('area', 'rect'); await setField('al', '12'); await setField('aw', '10');
+    await page.click('#toolBody [data-act="job"]');
+    await page.reload(); await page.waitForSelector('.tabbar');
+    await nav('Jobs');
+    has(await page.textContent('#jobsBody'), '1 item');
   });
 
   console.log('\nFit & finish');
@@ -612,6 +728,15 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
       eq(r.fits, true, 'keypad fits'); eq(r.scroll, false, 'sideways scroll'); eq(r.small.join(','), '', 'small targets');
     });
   }
+  await test('landscape entry keypad fits on screen with 44px keys', async () => {
+    const c2 = await browser.newContext(LAYOUTS['iPhone 13 landscape (home-screen app, full height)']);
+    const p2 = await c2.newPage(); await p2.goto(BASE + '#/t/concrete'); await p2.waitForSelector('#screen-tool:not([hidden])');
+    await p2.click('.field[data-field="L"]');
+    const r = await p2.evaluate(() => { const n = document.querySelector('#nextKey').getBoundingClientRect(); return { bottom: n.bottom, h: n.height, vh: innerHeight }; });
+    await c2.close();
+    if (r.bottom > r.vh + 1) throw new Error('NEXT key off screen: ' + r.bottom + ' > ' + r.vh);
+    if (r.h < 44) throw new Error('keys only ' + r.h + 'px');
+  });
   await test('iPhone 13 landscape in Safari (browser bars showing): keypad still fits', async () => {
     const c2 = await browser.newContext({ ...devices['iPhone 13 landscape'] });
     const p2 = await c2.newPage(); await p2.goto(BASE); await p2.waitForSelector('#screen-calc:not([hidden])');
