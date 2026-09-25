@@ -544,19 +544,17 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     eq(await result(), `0"`);
     await nav('Settings'); await page.click('[data-prec="16"]');
   });
-  await test('night theme toggles', async () => {
-    await page.click('[data-theme-set="dark"]');
+  await test('app is always in night mode (no theme switch)', async () => {
     eq(await page.getAttribute('html', 'data-theme'), 'dark');
+    eq(await page.$$eval('[data-theme-set]', (x) => x.length), 0);
+    eq(await page.$eval('body', (e) => getComputedStyle(e).backgroundColor), 'rgb(18, 20, 22)');
   });
-  await shot('06-settings-dark');
   await test('tape, settings and inputs survive a reload', async () => {
     const before = await page.evaluate(() => JSON.parse(localStorage.getItem('jsc.tape')).length);
     await page.reload();
     await page.waitForSelector('#screen-settings:not([hidden])');
-    eq(await page.getAttribute('html', 'data-theme'), 'dark');
     const after = await page.evaluate(() => JSON.parse(localStorage.getItem('jsc.tape')).length);
     eq(after, before);
-    await page.click('[data-theme-set="light"]');
   });
 
   console.log('\nOffline');
@@ -650,12 +648,13 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     await setField('al', '12');
     eq(await page.$eval('.field[data-field="al"] .unit-chip', (e) => e.hidden), false);
   });
-  await test('Daylight: result card stays dark with yellow answer', async () => {
-    await nav('Settings'); await page.click('[data-theme-set="light"]');
+  await test('an old saved "light" setting still opens in night mode', async () => {
+    await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('jsc.settings') || '{}'); s.theme = 'light'; localStorage.setItem('jsc.settings', JSON.stringify(s)); });
+    await page.reload(); await page.waitForSelector('.tabbar');
+    eq(await page.getAttribute('html', 'data-theme'), 'dark');
     await openTool('area', 'rect'); await setField('al', '12'); await setField('aw', '10');
-    const c = await page.$eval('#toolBody .hero', (e) => [getComputedStyle(e).backgroundColor, getComputedStyle(e.querySelector('.r-val')).color]);
-    eq(c.join(' | '), 'rgb(17, 19, 21) | rgb(255, 196, 0)');
-    await nav('Settings'); await page.click('[data-theme-set="dark"]');
+    const c = await page.$eval('#toolBody .hero', (e) => getComputedStyle(e.querySelector('.r-val')).color);
+    eq(c, 'rgb(255, 196, 0)');
   });
   await test('Jobs: slab + footing + pads roll up to 14.23 cu yd, 2 trucks', async () => {
     await page.evaluate(() => { localStorage.removeItem('jsc.jobs'); localStorage.removeItem('jsc.activeJob'); });
