@@ -387,6 +387,7 @@
     let n;
     if (pos(o.risers)) {
       n = Math.round(o.risers);
+      need(n >= 1, 'Number of risers must be at least 1');
     } else {
       n = Math.max(1, Math.round(o.totalRise / desired));
       while (o.totalRise / n > IRC_MAX_RISER + EPS) n++;
@@ -406,6 +407,9 @@
     const warnings = [];
     if (riserHeight > IRC_MAX_RISER + EPS) {
       warnings.push('Riser ' + fmtNum(riserHeight, 3) + '" exceeds IRC max 7-3/4"');
+    }
+    if (n > 1 && riserHeight < 4 - EPS) {
+      warnings.push('Riser ' + fmtNum(riserHeight, 3) + '" is under 4" (IBC minimum) — check the target riser or riser count');
     }
     if (treads > 0 && treadDepth < IRC_MIN_TREAD - EPS) {
       warnings.push('Tread ' + fmtNum(treadDepth, 3) + '" is under IRC min 10"' +

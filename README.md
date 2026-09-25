@@ -1,5 +1,8 @@
 # Jobsite Calc
 
+**Live app:** https://officehmc1283-spec.github.io/jobsite-calc/  (GitHub repo: github.com/officehmc1283-spec/jobsite-calc)
+Scan `iphone-install-qr.png` with the iPhone camera to open it in Safari, then Share → Add to Home Screen.
+
 An offline construction calculator (feet-inch-fraction math) that installs to your phone's home screen.
 Plain HTML/CSS/JS: no frameworks, no build step, no internet needed after the first load.
 
@@ -60,7 +63,9 @@ python3 -m http.server 8765 &
 node tests/e2e.test.js
 ```
 
-Last run (Sept 24, 2026): unit tests 58/58 passed, phone test 50/50 passed, no JavaScript errors, offline cold start works.
+Last run (Sept 24, 2026): unit tests 61/61 passed, phone test 56/56 passed, no JavaScript errors, offline cold start works.
+
+`tests/stairs.sweep.js` checks the stair tool against independent math for every total rise from 6" to 20' in 1/16" steps (26,215 cases): `node tests/stairs.sweep.js`.
 
 ## Host it free on GitHub Pages
 
