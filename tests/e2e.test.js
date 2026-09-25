@@ -589,6 +589,47 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     await ctx.setOffline(false);
   });
 
+  console.log('\nFit & finish');
+  const LAYOUTS = {
+    'iPhone SE': devices['iPhone SE'],
+    'iPhone 14 Pro Max': devices['iPhone 14 Pro Max'],
+    'iPhone 13 landscape (home-screen app, full height)': Object.assign({}, devices['iPhone 13 landscape'], { viewport: { width: 844, height: 390 } })
+  };
+  for (const dn of Object.keys(LAYOUTS)) {
+    await test(dn + ': keypad fits, no sideways scroll, all tap targets ≥ 44px', async () => {
+      const c2 = await browser.newContext(LAYOUTS[dn]);
+      const p2 = await c2.newPage();
+      await p2.goto(BASE); await p2.waitForSelector('#screen-calc:not([hidden])');
+      const r = await p2.evaluate(() => {
+        const kp = document.querySelector('#keypad').getBoundingClientRect();
+        const small = [...document.querySelectorAll('button')].filter((b) => {
+          if (b.closest('[hidden]')) return false;
+          const rc = b.getBoundingClientRect(); return rc.width && (rc.width < 44 || rc.height < 44);
+        }).map((b) => b.textContent.trim());
+        return { fits: kp.bottom <= innerHeight + 1, scroll: document.documentElement.scrollWidth > innerWidth, small };
+      });
+      await c2.close();
+      eq(r.fits, true, 'keypad fits'); eq(r.scroll, false, 'sideways scroll'); eq(r.small.join(','), '', 'small targets');
+    });
+  }
+  await test('iPhone 13 landscape in Safari (browser bars showing): keypad still fits', async () => {
+    const c2 = await browser.newContext({ ...devices['iPhone 13 landscape'] });
+    const p2 = await c2.newPage(); await p2.goto(BASE); await p2.waitForSelector('#screen-calc:not([hidden])');
+    const fits = await p2.evaluate(() => document.querySelector('#keypad').getBoundingClientRect().bottom <= innerHeight + 1);
+    await c2.close(); eq(fits, true);
+  });
+  await test('big numbers get thousands separators and still re-parse', async () => {
+    await nav('Calc');
+    await keys('ac', '1', '2', '3', '4', '5', 'ft', '×', '9', '8', '7', 'ft', '=');
+    eq(await result(), '12,184,515 sq ft');
+    await keys('÷', '2', '=');
+    eq(await result(), '6,092,257.5 sq ft');
+  });
+  await test('Settings shows the app version', async () => {
+    await nav('Settings');
+    has(await page.textContent('#settingsBody'), 'version');
+  });
+
   console.log('\nErrors');
   await test('no JavaScript errors during the run', async () => {
     const real = errors.filter((e) => !/net::ERR_INTERNET_DISCONNECTED|Failed to fetch/.test(e));
