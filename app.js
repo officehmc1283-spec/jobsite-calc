@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const C = window.Calc;
-  const APP_VERSION = '6';
+  const APP_VERSION = '7';
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -36,8 +36,8 @@
   const sheetWaste = () => wasteSetting('sheetWaste', 10);
 
   function applyTheme() {
-    document.documentElement.dataset.theme = settings.theme;
-    $('meta[name="theme-color"]').setAttribute('content', settings.theme === 'light' ? '#ECEAE5' : '#121416');
+    // One look only: Graphite (night). Older saved "light" settings are ignored.
+    document.documentElement.dataset.theme = 'dark';
   }
 
   const buzz = () => { if (navigator.vibrate) navigator.vibrate(8); };
@@ -1381,14 +1381,10 @@
     curToolId = null;
     const precBtns = [2, 4, 8, 16, 32, 64].map((p) =>
       '<button data-prec="' + p + '" class="' + (p === prec() ? 'on' : '') + '" aria-pressed="' + (p === prec()) + '">1/' + p + '"</button>').join('');
-    const themeBtns = [['dark', 'Graphite (night)'], ['light', 'Daylight (sun)']].map(([v, l]) =>
-      '<button data-theme-set="' + v + '" class="' + (settings.theme === v ? 'on' : '') + '" aria-pressed="' + (settings.theme === v) + '">' + l + '</button>').join('');
     const sw = 'serviceWorker' in navigator && navigator.serviceWorker.controller;
     $('#settingsBody').innerHTML =
       '<div class="set-group"><h2 class="label">Fraction precision</h2><div class="grid3">' + precBtns + '</div>' +
       '<p>Results round to the nearest 1/' + prec() + '". Math is done at full precision.</p></div>' +
-      '<div class="set-group"><h2 class="label">Look</h2><div class="grid2">' + themeBtns + '</div>' +
-      '<p>Daylight is easier to read in direct sun.</p></div>' +
       '<div class="set-group"><h2 class="label">Default waste</h2><div class="fields">' +
       SETTINGS_FIELDS.map((f) => fieldHTML('settings', f)).join('') + '</div>' +
       '<p>Used when a tool\'s own waste % is left blank.</p></div>' +
@@ -1615,9 +1611,6 @@
     }
     if (t.dataset.prec) {
       settings.precision = +t.dataset.prec; saveSettings(); return renderSettings();
-    }
-    if (t.dataset.themeSet) {
-      settings.theme = t.dataset.themeSet; saveSettings(); applyTheme(); return renderSettings();
     }
   });
 

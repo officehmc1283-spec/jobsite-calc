@@ -1,6 +1,6 @@
 /* Jobsite Calc service worker — caches every file so the app runs with no signal.
  * When you change any app file, bump VERSION so phones pick up the new copy. */
-const VERSION = 'jobsite-calc-v6';
+const VERSION = 'jobsite-calc-v7';
 const FILES = [
   './',
   'index.html',

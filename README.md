@@ -11,7 +11,7 @@ Plain HTML/CSS/JS: no frameworks, no build step, no internet needed after the fi
 | File | What it is |
 |---|---|
 | `index.html` | App shell |
-| `styles.css` | High-contrast, glove-sized styles (Sun/Night themes) |
+| `styles.css` | High-contrast, glove-sized night-mode styles |
 | `calc.js` | All the math (parser, fractions, stairs, rafters, concrete…) with no UI code |
 | `app.js` | Screens, keypads, tape, settings (saved in localStorage) |
 | `sw.js` | Service worker that caches every file for offline use |
@@ -107,7 +107,7 @@ Tape, settings and tool inputs are kept.
 
 ## Look & feel (version 6: "Graphite & Safety Yellow")
 
-* **Bottom tabs:** Calc · Tools · Jobs · Settings. Two themes: Graphite (night, default) and Daylight (sun), set in Settings.
+* **Bottom tabs:** Calc · Tools · Jobs · Settings. One look: Graphite (night mode). Daylight was removed in version 7.
 * **Calculator:** 4-column keypad with an FT / IN / a/b row. Metric, sq/cu, √, ( ) and ± sit in a thin strip above it. The tape is a row of chips you tap to reuse. The header chips change display units and fraction precision.
 * **Tools:** grouped by trade (Sitework, Concrete & Masonry, Framing, Geometry & Units), with search and the 3 most recent tools at the top.
 * **Tool screens:** the main answer sits in a big result card with **Add to job** and **Send to tape**, then the inputs with unit tags, then the other results as tiles.
