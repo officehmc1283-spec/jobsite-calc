@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Calc tests</title>
+<style>body{font:16px/1.4 system-ui,sans-serif;margin:16px;background:#fff;color:#000}pre{white-space:pre-wrap}.ok{color:#0a6b1f}.bad{color:#b00000}</style></head>
+<body>
+<h1>Jobsite Calc — unit tests</h1>
+<pre id="out"></pre>
+<script>
+  const lines = [];
+  const orig = console.log;
+  console.log = (s) => { lines.push(s); orig(s); };
+</script>
+<script src="../calc.js"></script>
+<script src="calc.test.js"></script>
+<script>
+  const r = window.TEST_RESULT;
+  const out = document.getElementById('out');
+  out.textContent = lines.join('\n');
+  out.className = r.fail ? 'bad' : 'ok';
+</script>
+</body>
+</html>
