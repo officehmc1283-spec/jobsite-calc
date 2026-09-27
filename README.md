@@ -88,13 +88,26 @@ Settings → Offline shows "✓ Saved for offline use" once caching is done.
 
 ## Updating the app later
 
-After editing any file, change `VERSION` in `sw.js` (e.g. `jobsite-calc-v2`) and upload again.
+After editing any file, change `VERSION` in `sw.js` (e.g. `jobsite-calc-v12`) and `APP_VERSION` in `app.js`, then upload again.
 Phones pick up the new version the next time the app opens with signal, and use it from the launch after that.
 Tape, settings and tool inputs are kept.
 
 ## Tools
 
-1 Right Angle · 2 Grade & Slope · 3 Rafters · 4 Stairs · 5 Concrete · 6 Excavation · 7 Gravel & Fill · 8 Rebar · 9 Block (CMU) · 10 Lumber · 11 Sheet Goods · 12 Area & Volume · 13 Circles & Arcs · 14 Convert · 15 Markup & Margin · 16 Labor Cost · 17 Offsets · 18 Mortgage · 19 Loan Payoff · 20 Seller Net · 21 Proration · 22 Investment · 23 Construction Loan · 24 Price per Sq Ft
+1 Right Angle · 2 Grade & Slope · 3 Rafters · 4 Stairs · 5 Concrete · 6 Excavation · 7 Gravel & Fill · 8 Rebar · 9 Block (CMU) · 10 Lumber · 11 Sheet Goods · 12 Area & Volume · 13 Circles & Arcs · 14 Convert · 15 Markup & Margin · 16 Labor Cost · 17 Offsets · 18 Mortgage · 19 Loan Payoff · 20 Seller Net · 21 Proration · 22 Investment · 23 Construction Loan · 24 Price per Sq Ft · 25 Wall R-Value · 26 Dew Point · 27 Blower Door · 28 Ventilation · 29 Heat Loss · 30 Attic Insulation
+
+### Version 11: building science, How to use, accuracy fixes
+
+* **Building Science & Energy** (new trade group, also in the first-launch picker):
+  * **Wall R-Value:** whole-wall R and U-factor by the ASHRAE parallel-path method (studs at R-1.25/in, 25% framing @ 16", 22% @ 24", or your own %), with drywall, OSB, siding and air films built in. Exterior foam by type (XPS 5, EPS 4, polyiso 6, mineral wool 4.2 per inch) and thickness. *Sheathing check:* winter sheathing temperature vs. indoor dew point, the foam R needed to stay above it, and the IRC Table R702.7(3) minimum foam for climate zones 5–8.
+  * **Dew Point:** dew point from temperature and RH (Magnus formula). *Window sweat:* inside glass temperature from the U-factor and the highest indoor humidity before the glass fogs.
+  * **Blower Door:** CFM50 + volume (or floor area × ceiling height) → ACH50, pass/fail against a target (default 3), and the max CFM50 to pass.
+  * **Ventilation:** whole-house fan size by IRC 2021 (0.01 × sq ft + 7.5 × (bedrooms + 1)) and ASHRAE 62.2-2016 (0.03 × sq ft…), with IRC run-time factors for part-time fans. Bath/kitchen exhaust minimums in the note.
+  * **Heat Loss:** quick block load (walls, windows & doors, ceiling, floor, air leakage from ACH50 ÷ 15, ventilation with heat recovery) with an altitude correction — at 7,700 ft air carries about 25% less heat. Not a Manual J. *One surface* mode for a single wall or window.
+  * **Attic Insulation:** settled depth to add to reach a target R, bag count from the bag-chart coverage, and the depth markers code requires (1 per 300 sq ft).
+* **How to use** on every tool: a collapsed line under the title. Tap it for what the tool figures, how to use it, and what each input means. It stays closed until you open it, so screens stay clean.
+* **± key** on the entry keypad for negative numbers (below-zero design temperatures).
+* **Accuracy fixes (the v10 audit, rebuilt):** rebar grid and dowel counts round up so no space is wider than the spacing (21' slab @ 18" → 15 bars); chained math and tape reuse keep full precision (100' ÷ 7 × 7 = exactly 100'); ANS puts a full-precision value into a field; typos like "12 6", "12 6\"", "1.5.5", "1/2 3/4" are errors instead of being added; quantity 0 is an error; conduit shrink uses the standard field table (22½° 3/16", 30° 1/4", 45° 3/8", 60° 1/2" per inch of offset; 11¼° is geometry, marked approx.); labels clarified (trench backfill is compacted in place, rafter stock is a minimum, thick-edge slab assumes a vertical inside face, head of water at 60°F); no "-0.00'" or "-$0.00"; a warning when the station list stops at 400.
 
 ### Version 9: trades, favorites, real estate
 

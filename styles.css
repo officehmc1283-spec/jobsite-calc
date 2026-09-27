@@ -369,7 +369,7 @@ body.sheet-open .screen.scroll { padding-bottom: 62vh; }
 .fkeys .k { font-size: 30px; }
 .fkeys .k.unit { font-size: 22px; }
 .fkeys .k.txt { font-size: 18px; }
-.fkeys .next { grid-column: span 3; }
+.fkeys .next { grid-column: span 2; }
 .fkeys .next { min-width: 0; padding: 0 10px; gap: 8px; }
 .fkeys .next .next-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fkeys .next svg { width: 20px; height: 20px; stroke-width: 2.2; }
@@ -486,3 +486,24 @@ body.no-tabs .tabbar { display: none; }
 .more-trades[open] summary .chev { transform: rotate(90deg); }
 .trades-link { margin-top: 20px; width: 100%; color: var(--muted); }
 .out .hero .r-val.long { font-size: clamp(34px, 10.5vw, 52px); }
+
+/* ---------- how to use (collapsed by default, one per tool) ---------- */
+.howto { margin: -4px 0 12px; }
+.howto summary {
+  list-style: none; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 2px;
+  color: var(--muted); font: 600 15px/1 var(--sans); cursor: pointer; -webkit-user-select: none; user-select: none;
+}
+.howto summary::-webkit-details-marker { display: none; }
+.howto summary svg { width: 18px; height: 18px; stroke-width: 2; flex: none; }
+.howto summary .chev { width: 16px; height: 16px; transition: transform 0.15s; }
+.howto[open] summary { color: var(--text-2); }
+.howto[open] summary .chev { transform: rotate(90deg); }
+.howto-body {
+  padding: 12px 14px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line);
+  font: 500 15px/1.45 var(--sans); color: var(--text-2);
+}
+.howto-body p { margin: 0 0 8px; }
+.howto-body b { color: var(--text); font-weight: 600; }
+.howto-body dl { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+.howto-body dt { color: var(--text); font-weight: 600; }
+.howto-body dd { margin: -4px 0 0; color: var(--muted); }

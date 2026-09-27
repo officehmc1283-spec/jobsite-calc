@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const C = window.Calc;
-  const APP_VERSION = '9';
+  const APP_VERSION = '11';
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -55,7 +55,13 @@
   const fmtLen = (inches, style) => style === 'in' ? C.formatInches(inches, prec()) : C.formatFtIn(inches, prec());
 
   // ================================================================ calculator
-  const st = { expr: '', last: null, lastExpr: '', justEvaluated: false, error: '' };
+  const st = { expr: '', last: null, lastExpr: '', lastRaw: '', justEvaluated: false, error: '', refs: [] };
+  // A chained result or tape entry goes into the expression as ⟨n⟩ so the math keeps
+  // full precision (100' ÷ 7 × 7 = exactly 100'), while the display shows it rounded.
+  const REF_RE = /\u27E8(\d+)\u27E9/g;
+  function refOf(val) { st.refs.push({ v: val.v, d: val.d }); return '\u27E8' + (st.refs.length - 1) + '\u27E9'; }
+  const showRefs = (s) => s.replace(REF_RE, (m, i) => st.refs[+i] ? fmtVal(st.refs[+i]) : '?');
+  const evalExpr = (s) => C.evaluate(s, st.refs);
 
   function addToTape(e, val) {
     tape.push({ e, v: val.v, d: val.d });
@@ -93,7 +99,7 @@
   function currentValue() {
     if (st.justEvaluated) return st.last;
     if (!st.expr.trim()) return null;
-    try { return C.evaluate(st.expr); } catch (e) { return null; }
+    try { return evalExpr(st.expr); } catch (e) { return null; }
   }
 
   function renderCalc() {
@@ -128,13 +134,14 @@
   }
 
   // 7" 3/8 → 7-3/8"  (display only; both forms parse the same)
-  const pretty = (s) => s.replace(/(\d+)" (\d+\/\d+)(?![\d/.])/g, '$1-$2"').replace(/\s+/g, ' ').trim();
+  const pretty = (s) => showRefs(s).replace(/(\d+)" (\d+\/\d+)(?![\d/.])/g, '$1-$2"').replace(/\s+/g, ' ').trim();
 
   const endsWithOperator = (s) => /[+\-−×÷(√]\s*$/.test(s);
+  const endsWithRef = (s) => /\u27E9\s*$/.test(s);
 
   function startFromLast() {
     // After "=", operators continue from the previous result.
-    if (st.justEvaluated && st.last) st.expr = fmtVal(st.last);
+    if (st.justEvaluated && st.last) st.expr = refOf(st.last);
     st.justEvaluated = false;
   }
   function freshIfEvaluated() {
@@ -161,7 +168,7 @@
       const t = st.expr.trimEnd();
       if (!t) {
         if (k === '−') st.expr = '-';
-        else if (st.last) st.expr = fmtVal(st.last) + ' ' + k + ' ';
+        else if (st.last) st.expr = refOf(st.last) + ' ' + k + ' ';
       } else if (endsWithOperator(t)) {
         if (k === '−') st.expr = t + ' -';                   // negative number
         else st.expr = t.replace(/[+\-−×÷]$/, '').trimEnd() + ' ' + k + ' ';
@@ -181,8 +188,11 @@
       if (st.expr.trim()) st.expr = '-(' + st.expr.trim() + ')';
       $('#more').hidden = true;
     } else if (k === 'bs') {
-      if (st.justEvaluated) { st.expr = st.lastExpr; st.justEvaluated = false; }
-      else {
+      if (st.justEvaluated) { st.expr = st.lastRaw; st.justEvaluated = false; }
+      else if (endsWithRef(st.expr)) {
+        st.expr = st.expr.trimEnd().replace(/\u27E8\d+\u27E9$/, '').trimEnd();
+        if (endsWithOperator(st.expr) && !/[(√-]$/.test(st.expr)) st.expr += ' ';
+      } else {
         st.expr = st.expr.trimEnd().slice(0, -1).trimEnd();
         if (endsWithOperator(st.expr) && !/[(√-]$/.test(st.expr)) st.expr += ' ';
       }
@@ -201,8 +211,9 @@
     } else if (k === '=') {
       if (!st.expr.trim() || st.justEvaluated) return renderCalc();
       try {
-        const val = C.evaluate(st.expr);
+        const val = evalExpr(st.expr);
         st.last = val;
+        st.lastRaw = st.expr;
         st.lastExpr = pretty(st.expr);
         st.justEvaluated = true;
         addToTape(st.lastExpr, val);
@@ -217,7 +228,7 @@
     const t = tape[i];
     if (!t) return;
     const val = { v: t.v, d: t.d };
-    const text = fmtVal(val);
+    const text = refOf(val);
     if (st.justEvaluated || !st.expr.trim() || !endsWithOperator(st.expr.trimEnd())) {
       st.expr = text;
     } else {
@@ -232,7 +243,7 @@
 
   // ================================================================ tools
   const len = (id, label, unit, x) => Object.assign({ id, label, kind: 'len', unit }, x);
-  const num = (id, label, x) => Object.assign({ id, label, kind: 'num' }, x);
+  const num = (id, label, x) => Object.assign({ id, label, kind: 'num' }, /^(qty|bq|surf|workers)$/.test(id) ? { pos: true } : null, x);
   const choice = (id, label, options, def) => ({ id, label, kind: 'choice', options, def });
   const waste = (fn) => num('waste', 'Waste %', { def: fn, hint: 'default from Settings' });
 
@@ -281,7 +292,7 @@
       N('Truck loads', Math.ceil(t.tons / v.trk - C.EPS), 0, ' @ ' + C.fmtNum(v.trk, 1) + ' tons')
     ];
     if (v.price != null) rows.push(T('Cost', '$' + (t.tons * v.price).toFixed(2)));
-    rows.push(I(C.fmtNum(tpy, 2) + ' tons per cu yd (' + C.MATERIALS[v.mat].label + ')' +
+    rows.push(I(C.fmtNum(tpy, 2) + ' tons per cu yd (' + (v.tpy != null ? 'your weight' : C.MATERIALS[v.mat].label) + ')' +
       (v.comp ? ', plus ' + C.fmtNum(v.comp, 1) + '% for compaction' : '') + '. Ask your supplier for their weight.'));
     return rows;
   }
@@ -297,6 +308,14 @@
   }
   const depthField = len('depth', 'Depth / thickness', 'in', { hint: 'for volume' });
 
+  // BTU/h with thousands separators at any size (13,862 BTU/h)
+  const BTU = (label, x, o) => Object.assign({ label, fixed: Math.round(x).toLocaleString('en-US') + ' BTU/h', raw: { v: Math.round(x), d: 0 } }, o);
+  const foamChoice = () => choice('foam', 'Exterior foam', Object.keys(C.FOAMS).map((k) => [k, C.FOAMS[k].label.replace(/ \(.*\)$/, '')]), 'none');
+  const foamR = (v) => {
+    if (v.foam === 'none') return 0;
+    if (v.ft == null) throw new Error('Enter the foam thickness');
+    return C.FOAMS[v.foam].r * v.ft;
+  };
   const money = (id, label, x) => num(id, label, Object.assign({ tag: '$' }, x));
   const M = (label, v, o) => Object.assign({ label, money: v }, o);
   const FIN_NOTE = 'Estimates only — not a lender quote or financial advice.';
@@ -305,7 +324,8 @@
   const angleChoice = () => choice('ang', 'Fitting / bend angle', [['11.25', '11¼°'], ['22.5', '22½°'], ['30', '30°'], ['45', '45°'], ['60', '60°']], '45');
   function offsetRows(r, off, extra) {
     return (extra || []).concat([L('Travel', r.travel, { big: true, fmt: 'in' }), L('Run (advance)', r.run, { fmt: 'in' }),
-      N('Multiplier', r.multiplier, 3, '×'), L('Conduit shrink', r.shrink * off, { fmt: 'in', sub: C.fmtNum(r.shrink, 3) + '" per inch of offset' })]);
+      N('Multiplier', r.multiplier, 3, '×'),
+      L('Conduit shrink' + (r.shrinkApprox ? ' (approx.)' : ''), r.shrink * off, { fmt: 'in', sub: (r.shrinkApprox ? 'sharp-bend geometry, ' + C.fmtNum(r.shrink, 3) + '"' : C.formatInches(r.shrink, 16)) + ' per inch of offset' })]);
   }
 
   const TOOLS = [
@@ -375,6 +395,7 @@
               L('Horizontal distance', g.dist, { fmt: 'ftdec' }),
               L('Change per foot', Math.abs(g.inPerFt), { fmt: 'in' })
             ];
+            if (g.truncated) rows.push(W('Station list stops at 400 stations — use a bigger interval to see the whole run.'));
             if (g.stations.length) {
               rows.push(LIST('Stations (station — elevation)', g.stations.map((st) =>
                 C.station(st.x / 12) + '  —  ' + (st.elev / 12).toFixed(2) + "'")));
@@ -423,13 +444,13 @@
             L('Common rafter', r.common, { big: true }),
             L('Common tail', r.tail),
             L('Common total', r.commonTotal),
-            T('Common stock', r.commonBuy + "' board"),
+            T('Common stock', r.commonBuy + "' board (min.)"),
             L('Total rise', r.rise),
             N('Plumb cut', r.plumbDeg, 1, '°'), N('Seat cut', r.seatDeg, 1, '°'),
             L('Hip / valley rafter', r.hip, { big: true }),
             L('Hip tail', r.hipTail),
             L('Hip total', r.hipTotal),
-            T('Hip stock', r.hipBuy + "' board"),
+            T('Hip stock', r.hipBuy + "' board (min.)"),
             N('Hip plumb cut', r.hipPlumbDeg, 1, '°'),
             T('Hip pitch', v.pitch + ' / 17'),
             L('Jack common difference', r.jackDiff),
@@ -515,7 +536,7 @@
         },
         {
           id: 'edge', label: 'Thick-edge slab',
-          note: 'Monolithic slab with a turned-down edge. Edge depth is the total depth at the edge (slab included).',
+          note: 'Monolithic slab with a turned-down edge. Edge depth is the total depth at the edge (slab included). Assumes the inside face of the edge is vertical — a sloped inside face takes a little less concrete.',
           fields: [
             len('L', 'Length', 'ft', { req: true }), len('W', 'Width', 'ft', { req: true }),
             len('thick', 'Slab thickness', 'in', { def: 4 }),
@@ -558,7 +579,7 @@
               N('Truck loads', C.loads(loose, v.truck), 0, ' @ ' + C.fmtNum(v.truck, 1) + ' yd'),
               L('Top width', t.topWidth)
             ];
-            if (t.pipe) rows.push(V('Backfill (bank, less pipe)', t.backfill, 'cuyd'));
+            if (t.pipe) rows.push(V('Backfill (compacted, in place, less pipe)', t.backfill, 'cuyd'));
             rows.push(I('Swell ' + C.fmtNum(f.swell, 1) + '% (' + C.SOILS[v.soil].label + ').'));
             return rows;
           }
@@ -909,7 +930,7 @@
           });
         }
       }].concat(
-        [['pressure', 'Pressure', 'psi · kPa · bar · ft of head · in water (manometer)'],
+        [['pressure', 'Pressure', 'psi · kPa · bar · ft of head · in water (manometer). Head and in water use 60°F water (2.31 ft per psi)'],
           ['flow', 'Flow', 'gpm · cfm · L/min · m³/h'],
           ['temp', 'Temp'],
           ['weight', 'Weight', 'lb · kg · tons'],
@@ -1198,8 +1219,233 @@
           }
         }
       ]
-    }
+    },
 
+    // ---------------------------------------------------------------- building science
+    {
+      id: 'rvalue', title: 'Wall R-Value', desc: 'Whole-wall R · U-factor · sheathing condensation',
+      modes: [
+        {
+          id: 'wall', label: 'Wall R-value',
+          note: 'Built in: 1/2" drywall, 7/16" OSB, siding and air films (R-2.54 total). Studs figured at R-1.25 per inch. Parallel-path method (ASHRAE).',
+          fields: [
+            choice('fr', 'Framing', [['2x4', '2×4'], ['2x6', '2×6'], ['2x8', '2×8'], ['none', 'No studs']], '2x6'),
+            choice('oc', 'Stud spacing', [['16', '16" O.C.'], ['24', '24" O.C.']], '16'),
+            num('cav', 'Cavity insulation R', { hint: 'from the bag, e.g. 21' }),
+            foamChoice(), len('ft', 'Foam thickness', 'in', { hint: 'exterior, continuous' }),
+            num('ff', 'Framing %', { hint: 'blank = 25% @ 16", 22% @ 24"' })
+          ],
+          compute(v) {
+            const ciR = foamR(v);
+            const w = C.wallR({ framing: v.fr, oc: +v.oc, cavityR: v.cav, ciR, framingPct: v.ff });
+            const rows = [
+              N('Whole-wall R', w.R, 1, '', { big: true, sub: 'U-factor ' + C.fmtNum(w.U, 4) }),
+              N('U-factor', w.U, 4),
+              N('Label R (cavity + foam)', w.nominal, 2),
+              N('R through the insulation', w.rCavity, 1),
+              N('R through a stud', w.rStud, 1)
+            ];
+            if (v.fr !== 'none') rows.push(N('Lost to framing', w.bridgeLossPct, 0, '%'), I('Framing ' + C.fmtNum(w.ff * 100, 0) + '% of the wall. Studs are a thermal bridge — exterior foam covers them.'));
+            if (w.rPerInchCavity != null && w.rPerInchCavity > 7) rows.push(W('More than R-7 per inch won\'t fit in a ' + v.fr.replace('x', '×') + ' cavity — check the cavity R.'));
+            if (ciR) rows.push(I(C.FOAMS[v.foam].label + ' at R-' + C.fmtNum(C.FOAMS[v.foam].r, 1) + ' per inch = R-' + C.fmtNum(ciR, 2) + '.'));
+            return rows;
+          }
+        },
+        {
+          id: 'sheath', label: 'Sheathing check',
+          note: 'Checks the inside face of the sheathing (the cold spot where walls get wet in winter). Use the average temperature of your coldest month, not the design low.',
+          fields: [
+            choice('fr', 'Framing', [['2x4', '2×4'], ['2x6', '2×6']], '2x6'),
+            num('cav', 'Cavity insulation R', { req: true }),
+            foamChoice(), len('ft', 'Foam thickness', 'in', { hint: 'exterior, continuous' }),
+            num('tin', 'Indoor temp', { def: 70, tag: '°F' }), num('rh', 'Indoor humidity %', { def: 35 }),
+            num('tout', 'Coldest-month avg temp', { req: true, tag: '°F' }),
+            choice('cz', 'Climate zone', [['5', '5'], ['6', '6'], ['7', '7'], ['8', '8']], '7')
+          ],
+          compute(v) {
+            const ciR = foamR(v);
+            const c = C.sheathingCheck({ cavityR: v.cav, ciR, inF: v.tin, rh: v.rh, outF: v.tout });
+            const code = C.IRC_CI_MIN[v.cz][v.fr];
+            const rows = [];
+            rows.push(c.ok ? OK('✓ Sheathing stays ' + C.fmtNum(c.margin, 1) + '°F above the dew point') : W('⚠ Sheathing is ' + C.fmtNum(-c.margin, 1) + '°F below the dew point — moisture can condense on it'));
+            rows.push(ciR >= code - C.EPS ? OK('✓ Meets IRC Table R702.7(3): R-' + C.fmtNum(code, 2) + ' min. foam for ' + v.fr.replace('x', '×') + ' in zone ' + v.cz)
+              : W('⚠ IRC Table R702.7(3) wants R-' + C.fmtNum(code, 2) + ' foam for ' + v.fr.replace('x', '×') + ' in zone ' + v.cz + ' to use a Class III vapor retarder (latex paint). Otherwise use a Class I or II retarder (poly, kraft facing, smart membrane).'));
+            rows.push(
+              N('Sheathing temperature', c.sheathingF, 1, '°F', { big: true }),
+              N('Indoor dew point', c.dew, 1, '°F'),
+              N('Foam to stay above dew point', isFinite(c.ciNeeded) ? c.ciNeeded : NaN, 1, '', { sub: 'R-value of exterior foam' }),
+              N('Foam R now', ciR, 2),
+              N('Code minimum foam R', code, 2),
+              N('Foam share of total R', c.ciRatio * 100, 0, '%'),
+              I('The dew-point check is stricter than the code table. Code allows brief winter wetting that sheathing can absorb and dry out. Lower indoor humidity helps a lot.')
+            );
+            return rows;
+          }
+        }
+      ]
+    },
+    {
+      id: 'dewpoint', title: 'Dew Point', desc: 'Dew point · window sweating · max humidity',
+      modes: [
+        {
+          id: 'dp', label: 'Dew point',
+          fields: [num('t', 'Air temperature', { req: true, tag: '°F' }), num('rh', 'Relative humidity %', { req: true })],
+          compute(v) {
+            const d = C.dewPoint(v.t, v.rh);
+            return [
+              N('Dew point', d, 1, '°F', { big: true, sub: C.fmtNum((d - 32) * 5 / 9, 1) + '°C' }),
+              N('Spread (air − dew point)', v.t - d, 1, '°F'),
+              I('Any surface colder than ' + C.fmtNum(d, 1) + '°F in this air will get wet' + (d <= 32 ? ' (frost below 32°F).' : '.'))
+            ];
+          }
+        },
+        {
+          id: 'win', label: 'Window sweat',
+          note: 'Estimates the inside glass temperature from the window\'s U-factor (center of glass). Edges and frames run colder, so they sweat first.',
+          fields: [
+            num('tin', 'Indoor temp', { def: 70, tag: '°F' }), num('tout', 'Outdoor temp', { req: true, tag: '°F' }),
+            num('u', 'Window U-factor', { def: 0.30, hint: 'on the NFRC sticker' }), num('rh', 'Indoor humidity %', { hint: 'optional' })
+          ],
+          compute(v) {
+            const ts = C.surfaceTemp(v.tin, v.tout, v.u);
+            const maxRh = C.maxRhForSurface(v.tin, ts);
+            const rows = [];
+            if (v.rh != null) {
+              const d = C.dewPoint(v.tin, v.rh);
+              rows.push(v.rh < maxRh ? OK('✓ No condensation at ' + C.fmtNum(v.rh, 0) + '% (dew point ' + C.fmtNum(d, 1) + '°F)') : W('⚠ Glass will sweat at ' + C.fmtNum(v.rh, 0) + '% (dew point ' + C.fmtNum(d, 1) + '°F)'));
+            }
+            rows.push(N('Max indoor humidity', maxRh, 0, '%', { big: true, sub: 'before the glass sweats' }), N('Inside glass temperature', ts, 1, '°F'));
+            return rows;
+          }
+        }
+      ]
+    },
+    {
+      id: 'blower', title: 'Blower Door', desc: 'CFM50 → ACH50 · pass / fail · target',
+      note: 'IECC 2021 limit: 3 ACH50 in climate zones 3–8, 5 ACH50 in 0–2 (prescriptive). Check what your jurisdiction adopted.',
+      modes: [{
+        id: 'main',
+        fields: [
+          num('cfm', 'Measured CFM50', { tag: 'CFM', hint: 'blank = just show the target' }),
+          num('floor', 'Conditioned floor area', { tag: 'SQ FT' }), len('ch', 'Average ceiling height', 'ft', { def: 8 }),
+          num('vol', 'Or house volume', { tag: 'CU FT', hint: 'overrides area × height' }),
+          num('target', 'Target ACH50', { def: 3 })
+        ],
+        compute(v) {
+          const vol = v.vol != null ? v.vol : (v.floor != null ? v.floor * v.ch / 12 : null);
+          if (vol == null) throw new Error('Enter floor area (or house volume)');
+          const b = C.blowerDoor({ cfm50: v.cfm, volume: vol, target: v.target });
+          const rows = [];
+          if (b.ach50 != null) {
+            rows.push(b.pass ? OK('✓ Passes ' + C.fmtNum(b.target, 2) + ' ACH50') : W('⚠ Over ' + C.fmtNum(b.target, 2) + ' ACH50 — find and seal ' + C.fmtNum(b.cfm50 - b.maxCfm50, 0) + ' CFM50 of leaks'));
+            rows.push(N('ACH50', b.ach50, 2, '', { big: true, sub: 'air changes per hour at 50 pascals' }));
+          }
+          rows.push(N('Max CFM50 to pass', b.maxCfm50, 0, ' CFM', { big: b.ach50 == null }), N('House volume', vol, 0, ' cu ft'));
+          if (v.floor != null && b.ach50 != null) rows.push(N('CFM50 per sq ft of floor', v.cfm / v.floor, 3));
+          return rows;
+        }
+      }]
+    },
+    {
+      id: 'vent', title: 'Ventilation', desc: 'Fresh-air fan size · IRC & ASHRAE 62.2',
+      note: 'Local exhaust (IRC Table M1505.4.4): bath 50 CFM on demand or 20 continuous; kitchen 100 CFM on demand or 25 continuous. Range hoods over 400 CFM need makeup air (IRC M1503.6).',
+      modes: [{
+        id: 'main',
+        fields: [
+          num('floor', 'Conditioned floor area', { req: true, tag: 'SQ FT' }), num('br', 'Bedrooms', { req: true }),
+          choice('run', 'Fan runs', [['100', 'Always'], ['75', '75%'], ['66', '66%'], ['50', '50%'], ['33', '33%'], ['25', '25%']], '100')
+        ],
+        compute(v) {
+          const r = C.ventilation({ floor: v.floor, bedrooms: v.br, runPct: +v.run });
+          const part = v.run !== '100';
+          return [
+            N('Fan size (IRC)', r.ircFan, 0, ' CFM', { big: true, sub: part ? C.fmtNum(r.irc, 1) + ' CFM continuous × ' + r.factor + ' for ' + v.run + '% run time' : 'running continuously' }),
+            N('Fan size (ASHRAE 62.2)', r.ashraeFan, 0, ' CFM', { sub: part ? C.fmtNum(r.ashrae, 1) + ' CFM continuous × ' + r.factor : 'running continuously' }),
+            N('IRC continuous rate', r.irc, 1, ' CFM'), N('ASHRAE continuous rate', r.ashrae, 1, ' CFM'),
+            I('IRC 2021: 0.01 × sq ft + 7.5 × (bedrooms + 1). ASHRAE 62.2-2016: 0.03 × sq ft + 7.5 × (bedrooms + 1), shown without an infiltration credit (credit needs a blower-door number and a qualified rater).'),
+            I('Part-time fans must run at least 25% of every 4 hours (IRC M1505.4.3).')
+          ];
+        }
+      }]
+    },
+    {
+      id: 'heatloss', title: 'Heat Loss', desc: 'BTU/h · walls · windows · air leakage · altitude',
+      modes: [
+        {
+          id: 'house', label: 'Whole house',
+          note: 'Quick block load for rough sizing and comparing options — not a Manual J. Leave any line blank to skip it. Slab and basement losses are not included.',
+          fields: [
+            num('tin', 'Indoor temp', { def: 70, tag: '°F' }), num('tout', 'Outdoor design temp', { req: true, tag: '°F' }),
+            num('wa', 'Wall area (net)', { tag: 'SQ FT', hint: 'minus windows & doors' }), num('wr', 'Wall R (whole-wall)', {}),
+            num('ga', 'Window & door area', { tag: 'SQ FT' }), num('gu', 'Window U-factor', { def: 0.30 }),
+            num('ca', 'Ceiling area', { tag: 'SQ FT' }), num('cr', 'Ceiling R', { def: 49 }),
+            num('fa', 'Floor over crawl / garage', { tag: 'SQ FT' }), num('fr', 'Floor R', { def: 30 }),
+            num('vol', 'House volume', { tag: 'CU FT' }), num('ach', 'Air leakage ACH50', { hint: 'blower door' }),
+            num('vcfm', 'Ventilation fan', { tag: 'CFM', hint: 'optional' }), num('hrv', 'HRV / ERV recovery %', { hint: 'blank = no recovery' }),
+            num('elev', 'Elevation', { def: 0, tag: 'FT' })
+          ],
+          compute(v) {
+            const h = C.heatLoss({
+              inF: v.tin, outF: v.tout, elev: v.elev, volume: v.vol, ach50: v.ach, ventCfm: v.vcfm, recoveryPct: v.hrv,
+              surfaces: [
+                { key: 'wall', name: 'wall', area: v.wa, r: v.wr }, { key: 'win', name: 'window', area: v.ga, u: v.gu },
+                { key: 'ceil', name: 'ceiling', area: v.ca, r: v.cr }, { key: 'floor', name: 'floor', area: v.fa, r: v.fr }
+              ]
+            });
+            const names = { wall: 'Walls', win: 'Windows & doors', ceil: 'Ceiling', floor: 'Floor', infil: 'Air leakage', vent: 'Ventilation' };
+            const rows = [BTU('Heat loss', h.total, { big: true, sub: C.fmtNum(h.total / 3412.142, 2) + ' kW · design ΔT ' + C.fmtNum(h.dT, 1) + '°F' })];
+            h.parts.forEach((p) => rows.push(BTU(names[p.key], p.btuh, { sub: C.fmtNum(p.btuh / h.total * 100, 0) + '% of total' + (p.cfm ? ' · ' + C.fmtNum(p.cfm, 1) + ' CFM' : '') })));
+            if (h.infilCfm) rows.push(I('Air leakage: ACH50 ÷ ' + C.ACH50_TO_NATURAL + ' ≈ natural air changes (rough design estimate).'));
+            if (v.elev) rows.push(I('Air at ' + C.fmtNum(v.elev, 0) + ' ft is ' + C.fmtNum((1 - h.altitude) * 100, 0) + '% thinner, so air leakage and ventilation lose that much less heat.'));
+            return rows;
+          }
+        },
+        {
+          id: 'surf', label: 'One surface',
+          note: 'Heat through one wall, window, ceiling or door: area × ΔT ÷ R.',
+          fields: [
+            num('a', 'Area', { req: true, tag: 'SQ FT' }), num('r', 'R-value', { hint: 'or U-factor below' }), num('u', 'Or U-factor', {}),
+            num('tin', 'Indoor temp', { def: 70, tag: '°F' }), num('tout', 'Outdoor temp', { req: true, tag: '°F' })
+          ],
+          compute(v) {
+            if (v.r == null && v.u == null) throw new Error('Enter R-value or U-factor');
+            const h = C.heatLoss({ inF: v.tin, outF: v.tout, surfaces: [v.u != null ? { key: 's', name: 'surface', area: v.a, u: v.u } : { key: 's', name: 'surface', area: v.a, r: v.r }] });
+            const U = h.parts[0].ua / v.a;
+            return [BTU('Heat loss', h.total, { big: true, sub: C.fmtNum(h.total / 3412.142, 3) + ' kW' }),
+              N('BTU/h per sq ft', h.total / v.a, 2), N('U-factor', U, 4), N('R-value', 1 / U, 2),
+              v.r != null && v.u != null ? I('Using the U-factor — clear it to use the R-value.') : null].filter(Boolean);
+          }
+        }
+      ]
+    },
+    {
+      id: 'attic', title: 'Attic Insulation', desc: 'Blown depth · bags · depth markers',
+      note: 'Typical settled R per inch: cellulose 3.2–3.8, fiberglass 2.2–2.9 — the bag chart is the final word. Keep insulation off soffit vents (use baffles) and 3" from can lights unless IC-rated.',
+      modes: [{
+        id: 'main',
+        fields: [
+          num('area', 'Attic floor area', { req: true, tag: 'SQ FT' }), num('target', 'Target R-value', { def: 49 }),
+          num('ex', 'Existing R', { def: 0, hint: 'old batts ≈ R-3 per inch' }),
+          choice('mat', 'Material', Object.keys(C.LOOSE_FILL).map((k) => [k, C.LOOSE_FILL[k].label]), 'cellulose'),
+          num('rpi', 'R per inch', { hint: 'blank = typical for material' }),
+          num('cov', 'Bag coverage', { tag: 'SQ FT', hint: 'from bag chart at the R you\'re adding' })
+        ],
+        compute(v) {
+          const a = C.atticInsulation({ area: v.area, targetR: v.target, existingR: v.ex, material: v.mat, rPerIn: v.rpi, coverage: v.cov });
+          if (a.done) return [OK('✓ Existing R-' + C.fmtNum(v.ex, 1) + ' already meets R-' + C.fmtNum(v.target, 1)), N('R to add', 0, 0)];
+          const rows = [
+            L('Settled depth to add', a.depth, { fmt: 'in', big: true }),
+            N('R to add', a.addR, 1),
+            V('Insulation volume', a.cuft * C.CUFT, 'cuft')
+          ];
+          rows.push(a.bags != null ? N('Bags', a.bags, 0, '', { big: true }) : I('For a bag count, enter the coverage (sq ft per bag) from the bag chart.'));
+          rows.push(N('Depth markers', a.markers, 0, '', { sub: '1 per 300 sq ft, facing the attic access (IECC R303.1.1.1)' }));
+          if (v.mat === 'cellulose') rows.push(I('Cellulose settles — blow it deeper than the settled depth. The bag chart lists the install depth.'));
+          rows.push(I(C.fmtNum(a.rPerIn, 2) + ' R per inch.'));
+          return rows;
+        }
+      }]
+    }
   ];
   const TOOL = {};
   TOOLS.forEach((t) => { TOOL[t.id] = t; });
@@ -1230,7 +1476,13 @@
     proration: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4M12 10v10"/>',
     invest: '<path d="M4 20h16M7 16v-4M12 16V8M17 16V5"/>',
     conloan: '<path d="M4 20h16M6 20V9l6-4 6 4v11"/><path d="M9 20v-6h6v6M3 9h18"/>',
-    ppsf: '<path d="M4 4h16v16H4z"/><path d="M4 9h5M4 14h3M9 4v5M14 4v3"/>'
+    ppsf: '<path d="M4 4h16v16H4z"/><path d="M4 9h5M4 14h3M9 4v5M14 4v3"/>',
+    rvalue: '<path d="M4 4v16M20 4v16"/><path d="M8 6c3 2-3 4 0 6s-3 4 0 6M13 6c3 2-3 4 0 6s-3 4 0 6"/>',
+    dewpoint: '<path d="M12 3c3.5 4.5 6 7.6 6 10.5A6 6 0 016 13.5C6 10.6 8.5 7.5 12 3z"/>',
+    blower: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="5"/><path d="M12 7v10M7 12h10"/>',
+    vent: '<path d="M3 8h11a3 3 0 10-3-3M3 12h15a3 3 0 11-3 3M3 16h7"/>',
+    heatloss: '<path d="M3 11l9-7 9 7v9H3z"/><path d="M12 11v5M9.5 13.5L12 16l2.5-2.5"/>',
+    attic: '<path d="M2 13l10-8 10 8"/><path d="M5.5 13h13M7 16h10M9 19h6"/>'
   };
   const JOB_ICON = '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v3H9zM9 11h6M9 15h4"/>';
   const CHEV = svg('<path d="M9 6l6 6-6 6"/>', 'chev');
@@ -1244,7 +1496,8 @@
     { id: 'carpentry', name: 'Carpentry & Framing', icon: 'stairs', ex: 'Stairs, rafters, studs, sheet goods', tools: ['rightangle', 'rafters', 'stairs', 'lumber', 'sheets'] },
     { id: 'concrete', name: 'Concrete & Sitework', icon: 'concrete', ex: 'Yards, rebar, block, dirt, grade', tools: ['concrete', 'rebar', 'block', 'dirt', 'gravel', 'grade'] },
     { id: 'plumbing', name: 'Plumbing, Pipe & Conduit', icon: 'offsets', ex: 'Offsets, pipe fall, pressure & flow', tools: ['offsets', 'grade'] },
-    { id: 'realestate', name: 'Real Estate & Finance', icon: 'mortgage', ex: 'Mortgage, payoff, net sheet, prorations', tools: ['mortgage', 'payoff', 'netsheet', 'proration', 'invest', 'conloan', 'ppsf'] }
+    { id: 'realestate', name: 'Real Estate & Finance', icon: 'mortgage', ex: 'Mortgage, payoff, net sheet, prorations', tools: ['mortgage', 'payoff', 'netsheet', 'proration', 'invest', 'conloan', 'ppsf'] },
+    { id: 'bsci', name: 'Building Science & Energy', icon: 'rvalue', ex: 'R-value, dew point, blower door, ventilation, heat loss', tools: ['rvalue', 'dewpoint', 'blower', 'vent', 'heatloss', 'attic'] }
   ];
   const EVERYDAY = ['convert', 'markup', 'labor', 'area', 'circles'];
   const TRADE = {};
@@ -1274,8 +1527,197 @@
     proration: 'proration prorate property tax hoa closing arrears',
     invest: 'investment rental cap rate noi cash flow cash on cash dscr grm',
     conloan: 'construction loan draw interest build',
-    ppsf: 'price per square foot sq ft acre comps value appraisal land'
+    ppsf: 'price per square foot sq ft acre comps value appraisal land',
+    rvalue: 'r-value r value u-factor u factor insulation wall assembly thermal bridge framing foam continuous ci exterior sheathing condensation vapor retarder dew point energy code iecc irc building science',
+    dewpoint: 'dew point humidity rh condensation window sweat sweating moisture frost mold building science',
+    blower: 'blower door ach50 cfm50 air leakage airtight air sealing infiltration energy code test building science',
+    vent: 'ventilation fresh air erv hrv exhaust bath fan kitchen hood cfm ashrae 62.2 irc m1505 makeup air building science',
+    heatloss: 'heat loss btu load heating furnace boiler sizing manual j design temperature altitude elevation infiltration building science energy',
+    attic: 'attic insulation blown cellulose fiberglass loose fill depth bags r-49 r-60 building science energy'
   };
+  // ================================================================ how-to text (one per tool)
+  // what = what it figures · how = how to use it · terms = the inputs, in plain words.
+  const HELP = {
+    rightangle: {
+      what: 'Solves a right triangle — the 3-4-5 math for squaring layouts, stair and roof lines, and diagonals.',
+      how: 'Fill in any two boxes and the rest are solved. Two lengths work, or one length plus an angle.',
+      terms: [['Rise', 'vertical height'], ['Run', 'level distance'], ['Diagonal', 'the sloped side (hypotenuse)'],
+        ['Pitch', 'inches of rise per 12" of run, e.g. 6 for a 6/12 roof'], ['Slope %', 'rise ÷ run × 100']]
+    },
+    grade: {
+      what: 'Slope of ground, driveways and pipe: percent grade, elevations along a run, and drain fall.',
+      how: 'Rise + Run: any two values. Elevations: three of start, end, distance and grade — add a station interval for a grade-stake list. Pipe fall: length and slope give the total drop.',
+      terms: [['Grade %', 'feet of rise per 100 ft of run'], ['Slope ratio', 'horizontal to 1 vertical — 3 means a 3:1 bank'],
+        ['Station', 'distance along the line: 1+25 = 125 ft'], ['Invert', 'elevation of the inside bottom of a pipe']]
+    },
+    rafters: {
+      what: 'Rafter lengths for a gable or hip roof: commons, hips/valleys and jacks, with plumb and seat cut angles.',
+      how: 'Enter the pitch and the building span. Add ridge thickness and overhang if you have them. Lengths are line lengths — mark them along the top edge of the board.',
+      terms: [['Span', 'outside of wall to outside of wall'], ['Ridge thickness', 'half is taken off each common'],
+        ['Overhang', 'level distance past the wall'], ['Jack spacing', 'on-center layout of the jack rafters']]
+    },
+    stairs: {
+      what: 'Lays out a stair: number of risers and treads, riser height, tread depth and stringer length, checked against the IRC.',
+      how: 'Measure total rise from finished floor to finished floor. Add a max run if space is tight. The tool picks risers so each one is 7-3/4" or less.',
+      terms: [['Total rise', 'finished floor to finished floor'], ['Riser', 'height of one step'], ['Tread', 'depth of one step, nose to nose'],
+        ['Stringer', 'the notched board; length is floor to upper floor along the slope']]
+    },
+    concrete: {
+      what: 'Cubic yards of concrete for slabs, footings, tubes, steps, walls and pads, plus bag counts and trucks.',
+      how: 'Pick the shape on top, enter the sizes, and order the "Concrete to order" number. Waste is added from Settings (10% default) — change it per job in the Waste box.',
+      terms: [['Thickness / depth', 'in inches unless you type a unit'], ['Waste %', 'extra for spillage, over-dig and uneven grade'],
+        ['Thick-edge slab', 'a slab with a deeper, turned-down footing around the edge']]
+    },
+    dirt: {
+      what: 'Earthwork: yards to dig for trenches and basements, cut/fill pads, and how many truck loads to haul.',
+      how: 'Pick the job on top. Enter sizes and the soil type. Bank yards are in the ground; loose yards are what fills the truck; compacted is what ends up in place.',
+      terms: [['Side slope', 'feet out per foot down. 0 = straight walls, 1 = 1:1, 1.5 = 1-1/2:1'], ['Swell', 'how much dirt grows when dug up'],
+        ['Shrink', 'how much it loses when compacted'], ['Overdig', 'working room around a footprint']]
+    },
+    gravel: {
+      what: 'Tons of gravel, road base, sand or fill for an area or volume, with truck loads and cost.',
+      how: 'Enter the area and depth (or a volume in cubic yards) and pick the material. Ask your supplier for their weight per yard and put it in Tons per cu yd.',
+      terms: [['Compaction extra', 'more material to make up for compacting, often 15–20% for road base'], ['Truck capacity', 'tons per load']]
+    },
+    rebar: {
+      what: 'Rebar for a slab grid or footing: total length, stock bars to buy, weight and lap splices.',
+      how: 'Slab grid: enter the slab size, spacing and edge cover. Footing: enter the length and number of continuous bars, plus dowel spacing if needed. Bar counts round up so no space is wider than the spacing.',
+      terms: [['Spacing (O.C.)', 'center to center between bars'], ['Edge cover', 'concrete between the bar ends and the slab edge'],
+        ['Lap splice', 'overlap where two bars join — default is 40 bar diameters; follow your engineer'], ['Stock length', 'length of the bars you buy']]
+    },
+    block: {
+      what: 'Concrete block (CMU) count for a wall, plus mortar bags and grout for a solid-grouted wall.',
+      how: 'Enter wall length and height and subtract openings in square feet. Pick the block width and whether the wall is solid grouted.',
+      terms: [['Openings', 'doors and windows, in square feet'], ['Solid grouted', 'every cell filled'], ['Waste', 'broken and cut block']]
+    },
+    lumber: {
+      what: 'Board feet for pricing lumber, and stud and plate counts for a wall.',
+      how: 'Board feet: nominal size (2 × 10), length and pieces. Wall studs: wall length, spacing, and the number of corners and openings.',
+      terms: [['Board foot', '12" × 12" × 1" of nominal lumber'], ['Nominal', 'the name size — a 2×4 is 1-1/2 × 3-1/2 actual'],
+        ['Corners / tees', 'each adds 2 studs'], ['Openings', 'each adds a king and a jack stud']]
+    },
+    sheets: {
+      what: 'Number of sheets of drywall, plywood, OSB or subfloor for a wall, ceiling or floor.',
+      how: 'Enter length × height (or a total area), how many identical surfaces, and openings to subtract. Pick the sheet size.',
+      terms: [['Surfaces', 'e.g. 2 for both sides of a wall'], ['Openings', 'windows and doors, in square feet'], ['Waste', 'cut-offs and breakage']]
+    },
+    area: {
+      what: 'Area of common shapes, and volume if you add a depth.',
+      how: 'Pick the shape and enter its sizes. Odd shapes: use Irregular 4-side, or break the shape into pieces and add the results on the calculator tape.',
+      terms: [['Depth', 'optional — adds volume in cu ft and cu yd'], ['Irregular 4-side', 'needs all 4 sides plus one diagonal']]
+    },
+    circles: {
+      what: 'Circles and arcs: circumference, radius from a chord and height, arc length and angles.',
+      how: 'Pick what you know on top. For a curved wall or arch, measure the chord (straight across) and the height of the curve at the middle.',
+      terms: [['Chord', 'straight line between the arc ends'], ['Height (rise)', 'from the middle of the chord up to the arc'], ['Arc length', 'distance along the curve']]
+    },
+    convert: {
+      what: 'Unit converter: length, area, volume, pressure, flow, temperature, weight, power and energy.',
+      how: 'Pick the type on top, type a value and choose its unit. Every other unit is shown. Tap any result to put it on the tape.',
+      terms: [['ft of head', 'water pressure as height of water column (2.31 ft = 1 psi)'], ['Tons (cooling)', '12,000 BTU/h']]
+    },
+    markup: {
+      what: 'Prices a job from cost, or shows the markup and margin of a price.',
+      how: 'From cost: enter cost and either markup or margin. From price: enter cost and sell price.',
+      terms: [['Markup', 'profit ÷ cost'], ['Margin', 'profit ÷ sell price'], ['Example', '25% markup = 20% margin']]
+    },
+    labor: {
+      what: 'Labor cost for a crew, including overtime and burden.',
+      how: 'Enter crew size, hours each, base wage and burden %. Add overtime hours if any.',
+      terms: [['Burden', 'payroll taxes, workers comp and benefits on top of wages — often 20–40%'], ['Man-hours', 'crew size × hours']]
+    },
+    offsets: {
+      what: 'Pipe and conduit offsets: travel between fittings or bends, how far the offset advances, and conduit shrink.',
+      how: 'Enter the offset and pick the fitting or bend angle. For a rolling offset, enter the set (up/down) and the roll (sideways).',
+      terms: [['Offset', 'how far the line moves over'], ['Travel', 'center to center between fittings or bend marks'],
+        ['Run', 'how far forward the offset takes'], ['Shrink', 'how much a conduit offset shortens the run']]
+    },
+    mortgage: {
+      what: 'Monthly house payment (principal, interest, taxes, insurance, PMI, HOA), or the price a buyer can afford.',
+      how: 'Payment: enter price, down %, rate and costs. Affordability: enter income and debts — it uses standard 28% / 36% ratios.',
+      terms: [['PITI', 'principal, interest, taxes, insurance'], ['PMI', 'mortgage insurance when under 20% down'], ['Debt ratio', 'monthly debts ÷ gross income']]
+    },
+    payoff: {
+      what: 'How fast a loan pays off with extra payments, and the balance after a number of payments.',
+      how: 'Extra payments: enter balance, rate and payment, plus any extra. Balance after: enter the original loan and how many payments are made.',
+      terms: [['P&I', 'principal and interest only — no taxes or insurance']]
+    },
+    netsheet: {
+      what: 'What a seller walks away with after commission and closing costs, and how a commission splits.',
+      how: 'Enter the sale price, commission % and costs. Commission split: enter your side and the broker split.',
+      terms: [['Concessions', 'credits to the buyer'], ['Side', 'the listing or buying half of the commission']]
+    },
+    proration: {
+      what: 'Splits a yearly bill (property tax, HOA) between buyer and seller at closing.',
+      how: 'Enter the yearly amount, closing date, and whether the bill is paid in arrears (after) or in advance.',
+      terms: [['Arrears', 'the bill for this year comes due later — typical for property tax in many states, including Colorado'], ['Year basis', '365-day year or actual days']]
+    },
+    invest: {
+      what: 'Rental numbers: cap rate, cash flow, cash-on-cash return and DSCR.',
+      how: 'Enter price, rent, vacancy and yearly expenses, then the loan terms.',
+      terms: [['Cap rate', 'net operating income ÷ price'], ['NOI', 'income minus expenses, before the mortgage'],
+        ['Cash-on-cash', 'yearly cash flow ÷ cash invested'], ['DSCR', 'NOI ÷ loan payments — lenders want 1.20+']]
+    },
+    conloan: {
+      what: 'Interest you pay during a build on a construction loan.',
+      how: 'Enter the loan, rate and build time. It assumes even monthly draws, interest-only on what\'s drawn.',
+      terms: [['Draw', 'money released from the loan as work is done'], ['Points', 'lender fees as a % of the loan']]
+    },
+    ppsf: {
+      what: 'Price per square foot and per acre, and a value estimate from comparable sales.',
+      how: 'Enter the price and the living area and/or lot size. Comps: enter up to three sales and the subject\'s size.',
+      terms: [['Comps', 'similar homes that sold recently']]
+    },
+    rvalue: {
+      what: 'How well a wall actually insulates. Wall R-value adds up every layer and counts the studs, which leak heat. Sheathing check tells you if the wall can get wet inside in winter.',
+      how: 'Pick the framing, enter the cavity insulation R from the bag, and add any exterior foam. For the sheathing check, also enter indoor conditions and the average temperature of your coldest month.',
+      terms: [['R-value', 'resistance to heat flow — higher is better'], ['U-factor', '1 ÷ R; heat that gets through — lower is better'],
+        ['Whole-wall R', 'the real R after studs and all layers, always less than the label R'],
+        ['Framing %', 'share of the wall that is wood (studs, plates, headers). 25% is typical at 16" O.C.; advanced framing is about 16%'],
+        ['Exterior foam', 'continuous insulation outside the sheathing. R per inch: XPS 5, EPS 4, polyiso 6 (less in hard cold), mineral wool 4.2'],
+        ['Dew point', 'the temperature where moisture in the air turns to water']]
+    },
+    dewpoint: {
+      what: 'Dew point is the temperature where water vapor condenses. Any surface colder than that gets wet — windows, pipes, sheathing.',
+      how: 'Dew point: enter air temperature and relative humidity. Window sweat: enter indoor and outdoor temperatures and the window U-factor to find how humid the house can be before the glass fogs.',
+      terms: [['Relative humidity', 'how full the air is of moisture at that temperature, in %'],
+        ['U-factor', 'from the window\'s NFRC sticker — lower means warmer glass'], ['Spread', 'how many degrees a surface can cool before it gets wet']]
+    },
+    blower: {
+      what: 'Air-tightness of a house from a blower door test, and the number you need to hit to pass code.',
+      how: 'Enter the CFM50 from the test and the conditioned floor area with average ceiling height (or the volume). Leave CFM50 blank to see the most leakage you can have and still pass.',
+      terms: [['CFM50', 'airflow the blower door fan pulls to hold the house at 50 pascals'], ['ACH50', 'how many times the house air is replaced per hour at 50 pascals'],
+        ['Volume', 'conditioned floor area × average ceiling height']]
+    },
+    vent: {
+      what: 'Size of the whole-house fresh-air fan (ERV, HRV or exhaust fan) for a tight house.',
+      how: 'Enter conditioned floor area and bedrooms. If the fan runs only part of the time, pick the run time and the fan must be bigger.',
+      terms: [['Whole-house ventilation', 'steady low-speed fresh air for the whole house, separate from bath and kitchen fans'],
+        ['ERV / HRV', 'balanced fans that recover heat from the outgoing air'], ['Run time', 'share of each hour the fan runs; a timer or controller sets it']]
+    },
+    heatloss: {
+      what: 'How many BTUs per hour a house (or one wall or window) loses on the coldest day — for rough furnace and boiler sizing and comparing upgrades.',
+      how: 'Enter the design temperatures, then the area and R-value of each surface. Add blower door ACH50 and house volume for air leakage, and your elevation — air up high carries less heat.',
+      terms: [['Design temp', 'the cold-day temperature for your area (the 99% value in ACCA Manual J or your building department)'],
+        ['BTU/h', 'heat per hour. 3,412 BTU/h = 1 kW'], ['ΔT', 'indoor minus outdoor temperature'],
+        ['Whole-wall R', 'use the R-Value tool — not the label R on the bag']]
+    },
+    attic: {
+      what: 'Depth of blown-in insulation to reach a target R-value, plus bags and the attic depth markers code requires.',
+      how: 'Enter the attic floor area, the R you want, and any R already there. Enter the bag coverage from the chart on the bag to get a bag count.',
+      terms: [['Settled depth', 'depth after the insulation settles — what the R-value is based on'], ['Bag coverage', 'sq ft one bag covers at a given R, printed on the bag'],
+        ['Depth markers', 'rulers stapled to the trusses so inspectors can see the depth']]
+    }
+  };
+  function helpHTML(id) {
+    const h = HELP[id];
+    if (!h) return '';
+    return '<details class="howto"' + (howtoOpen === id ? ' open' : '') + '><summary>' + svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/>') + 'How to use' + CHEV + '</summary>' +
+      '<div class="howto-body"><p>' + esc(h.what) + '</p><p><b>How:</b> ' + esc(h.how) + '</p>' +
+      (h.terms && h.terms.length ? '<dl>' + h.terms.map(([t, d]) => '<dt>' + esc(t) + '</dt><dd>' + esc(d) + '</dd>').join('') + '</dl>' : '') +
+      '</div></details>';
+  }
+
   let recent = store.get('recent', []);
 
   // ================================================================ fields
@@ -1301,6 +1743,7 @@
       return val.v;
     }
     if (val.d !== 0) throw new Error('enter a plain number (no units)');
+    if (f.pos && !(val.v > 0)) throw new Error('must be more than 0');
     return val.v;
   }
 
@@ -1370,7 +1813,7 @@
     $('#toolFav').classList.toggle('on', fav);
     $('#toolFav').setAttribute('aria-pressed', fav);
     $('#toolFav').setAttribute('aria-label', fav ? 'Remove from favorites' : 'Add to favorites');
-    let html = '';
+    let html = helpHTML(id);
     if (tool.modes.length > 1) {
       html += '<div class="' + (tool.modes.length <= 3 ? 'seg' : 'pills') + ' modes" role="tablist" aria-label="Mode">' + tool.modes.map((m) =>
         '<button role="tab" aria-selected="' + (m === mode) + '" data-mode="' + m.id + '" class="' + (m === mode ? 'on' : '') + '">' + esc(m.label) + '</button>').join('') + '</div>';
@@ -1445,7 +1888,8 @@
         val = C.formatInches(v, prec());
         sub = C.fmtNum(v, 3) + '" · ' + C.fmtNum(v * 25.4, 1) + ' mm';
       } else if (r.fmt === 'ftdec') {
-        val = (Math.abs(v) < 0.006 ? 0 : v / 12).toFixed(2) + "'";
+        const ft = Math.round(v / 12 * 100) / 100;
+        val = (ft === 0 ? 0 : ft).toFixed(2) + "'";
         sub = C.formatFtIn(v, prec()) + ' · ' + C.fmtNum(v * 0.0254, 3) + ' m';
       } else {
         val = C.formatFtIn(v, prec());
@@ -1551,7 +1995,12 @@
     $('#tiles').innerHTML = html;
   }
   let moreOpen = false;
-  document.addEventListener('toggle', (e) => { if (e.target.classList && e.target.classList.contains('more-trades')) moreOpen = e.target.open; }, true);
+  let howtoOpen = null;   // keeps How to use open while switching modes of the same tool
+  document.addEventListener('toggle', (e) => {
+    if (!e.target.classList) return;
+    if (e.target.classList.contains('more-trades')) moreOpen = e.target.open;
+    if (e.target.classList.contains('howto')) howtoOpen = e.target.open ? curToolId : null;
+  }, true);
 
   // ================================================================ welcome / trade picker
   let picking = null;
@@ -1841,6 +2290,7 @@
     let s = inputs[active.key] || '';
     if (k === 'bs') s = s.replace(/\s+$/, '').slice(0, -1).replace(/ \+$/, '');
     else if (k === 'clr') s = '';
+    else if (k === 'neg') s = /^\s*-/.test(s) ? s.replace(/^\s*-\s*/, '') : '-' + s;
     else if (k === 'ft') s = s.trimEnd() + "' ";
     else if (k === 'in') s = s.trimEnd() + '" ';
     else if (k === '+' || k === '-') s = s.trimEnd() + ' ' + k + ' ';
@@ -1848,7 +2298,7 @@
     else if (k === 'ans') {
       if (!st.last) { toast('No calculator result yet'); return; }
       if (active.f.kind === 'num' && st.last.d !== 0) { toast('Last result has units'); return; }
-      s = (s && !/[\s+]$/.test(s) ? '' : s) + fmtVal(st.last).replace(/,/g, '');
+      s = (s && !/[\s+]$/.test(s) ? '' : s) + exactText(st.last);
     } else s += k;
     s = s.replace(/^\s+/, '');
     if (s) inputs[active.key] = s; else delete inputs[active.key];
@@ -1857,6 +2307,15 @@
     paintSheet();
     if (active.toolId === 'settings') return;
     computeTool();
+  }
+
+  // Text for a value that parses back to the same number. Uses the display form when
+  // it is exact; otherwise decimal inches (or plain decimals) with 6 places.
+  function exactText(val) {
+    const shown = fmtVal(val).replace(/,/g, '');
+    try { if (Math.abs(C.evaluate(shown).v - val.v) <= 1e-9 * Math.max(1, Math.abs(val.v))) return shown; } catch (e) { /* fall through */ }
+    const n = C.fmtNum(val.v, 6).replace(/,/g, '');
+    return val.d === 1 ? n + '"' : val.d === 2 ? n + ' sq in' : val.d === 3 ? n + ' cu in' : n;
   }
 
   // ================================================================ navigation
