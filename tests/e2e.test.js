@@ -49,7 +49,7 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     await page.click('#fkeys [data-fk="clr"]');
     for (const ch of text) {
       if (ch === ' ') continue;   // FT / IN keys add their own spacing
-      const k = ch === "'" ? 'ft' : ch === '"' ? 'in' : ch;
+      const k = ch === "'" ? 'ft' : ch === '"' ? 'in' : ch === '-' ? 'neg' : ch;
       await page.click(`#fkeys [data-fk="${k}"]`);
     }
     await page.click('.sheet [data-fk="done"]');
@@ -80,7 +80,7 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
   await test('first launch shows the trade picker with no tab bar', async () => {
     await page.waitForSelector('#screen-welcome:not([hidden])');
     eq(await page.isVisible('.tabbar'), false);
-    eq(await page.$$eval('.trade-pick', (t) => t.length), 4);
+    eq(await page.$$eval('.trade-pick', (t) => t.length), 5);
     eq(await page.isDisabled('#tradesDone'), true);
   });
   await test('any link still lands on the picker until trades are chosen', async () => {
@@ -187,6 +187,24 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     await keys('ac', '5', '÷', '0', '=');
     has(await result(), 'zero');
   });
+  await test('chained math keeps full precision: 100\' ÷ 7 × 7 = 100\'', async () => {
+    await keys('ac', '1', '0', '0', 'ft', '÷', '7', '=');
+    eq(await result(), `14' 3-7/16"`);
+    await keys('×', '7', '=');
+    eq(await result(), `100' 0"`);
+  });
+  await test('tape reuse keeps full precision', async () => {
+    await keys('ac');
+    await page.click('#tape li:nth-last-child(2)');
+    eq(await result(), `14' 3-7/16"`);
+    await keys('×', '7', '=');
+    eq(await result(), `100' 0"`);
+  });
+  await test('backspace removes a stored value in one tap', async () => {
+    await keys('ac', '1', '0', '0', 'ft', '÷', '7', '=', '+', 'bs', 'bs');
+    const e = await page.textContent('#expr');
+    eq(e.trim(), '');
+  });
   await test('tapping a tape entry reuses it', async () => {
     await keys('ac');
     await page.click('#tape li:first-child');
@@ -201,9 +219,9 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
   await shot('02-calc-tape');
 
   console.log('\nTools');
-  await test('tools list has every tool once (24), your trades first', async () => {
+  await test('tools list has every tool once (30), your trades first', async () => {
     await nav('Tools');
-    eq(await page.$$eval('#tiles .tool-row', (t) => t.length), 24);
+    eq(await page.$$eval('#tiles .tool-row', (t) => t.length), 30);
     const heads = await page.$$eval('#tiles > h2.label', (h) => h.map((x) => x.textContent));
     eq(heads.join('|'), 'Carpentry & Framing|Real Estate & Finance|Everyday');
     eq(await page.isVisible('.more-trades .tool-row[data-tool-open="concrete"]'), false, 'other trades collapsed');
@@ -237,7 +255,7 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
   await test('Rafters: 12" overhang adds tail', async () => {
     await setField('overhang', '12');
     eq(await rowVal('Common tail'), `1' 1-7/16"`);
-    eq(await rowVal('Common stock'), `16' board`);
+    eq(await rowVal('Common stock'), `16' board (min.)`);
   });
   await shot('04-rafters');
   await test('Stairs: 108" total rise → 14 risers @ 7-11/16", IRC OK', async () => {
@@ -303,6 +321,20 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     await setField('L', '20'); await setField('W', '20');
     eq(await rowVal('Concrete to order'), '5.43 cu yd');
     eq(await rowVal('Without waste'), '4.94 cu yd');
+  });
+  await test('typo "12 6" in a field is flagged, not added up', async () => {
+    await openTool('concrete', 'slab');
+    await setField('W', '20');
+    await page.click('#toolBody .field[data-field="L"]');
+    await page.click('#fkeys [data-fk="clr"]');
+    await page.keyboard.type('12 6');
+    await page.click('.sheet [data-fk="done"]');
+    has(await page.textContent('#outHero'), 'Two numbers');
+  });
+  await test('quantity 0 is an error, not 1', async () => {
+    await openTool('concrete', 'slab');
+    await setField('L', '20'); await setField('W', '20'); await setField('qty', '0');
+    has(await page.textContent('#outHero'), 'more than 0');
   });
   await test('Concrete footing', async () => {
     await openTool('concrete', 'footing');
@@ -388,7 +420,7 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     await setField('tl', '100'); await setField('td', '5'); await setField('side', '1'); await setField('pipe', '6');
     eq(await rowVal('Excavation (bank)'), '129.63 cu yd');
     eq(await rowVal('Top width'), `12' 0"`);
-    eq(await rowVal('Backfill (bank, less pipe)'), '128.9 cu yd');
+    eq(await rowVal('Backfill (compacted, in place, less pipe)'), '128.9 cu yd');
   });
   await test('Basement pit 40×30×8, 1:1, 2\' overdig → 653.43 cu yd', async () => {
     await openTool('dirt', 'pit');
@@ -645,7 +677,7 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     await page.fill('#toolSearch', 'cap rate');
     eq(await page.$$eval('#tiles .tool-row', (t) => t.map((x) => x.querySelector('.n').textContent).join()), 'Investment');
     await page.fill('#toolSearch', '');
-    eq(await page.$$eval('#tiles .tool-row', (t) => t.length), 24);
+    eq(await page.$$eval('#tiles .tool-row', (t) => t.length), 30);
   });
   await test('recently used tools show at the top', async () => {
     await openTool('stairs'); await openTool('grade');
@@ -988,11 +1020,113 @@ function has(a, b, msg) { if (String(a).indexOf(b) < 0) throw new Error((msg || 
     await page.waitForSelector('#screen-job:not([hidden])');
     eq(await page.$eval('#jobBody .hero .r-val', (e) => e.textContent), '$1,875.00');
   });
+  console.log('\nBuilding science');
+  await test('R-value: 2×6 R-20 → whole-wall R-16.7; + 1" XPS → R-22.4', async () => {
+    await openTool('rvalue', 'wall');
+    await setField('cav', '20');
+    eq(await rowVal('Whole-wall R'), '16.7');
+    eq(await rowVal('Lost to framing'), '26%');
+    await pick('rvalue', 'foam', 'xps'); await setField('ft', '1');
+    eq(await rowVal('Whole-wall R'), '22.4');
+    eq(await rowVal('Label R (cavity + foam)'), '25');
+  });
+  await test('Sheathing check: 2×6 R-21 at 10°F, 35% → 13.6°F, needs R-22.4 foam; 3" XPS passes code', async () => {
+    await openTool('rvalue', 'sheath');
+    await setField('cav', '21'); await setField('tout', '10');
+    eq(await rowVal('Sheathing temperature'), '13.6°F');
+    eq(await rowVal('Indoor dew point'), '41.1°F');
+    eq(await rowVal('Foam to stay above dew point'), '22.4');
+    has(await page.textContent('#outHero'), 'IRC Table R702.7(3) wants R-15');
+    await pick('rvalue', 'foam', 'xps'); await setField('ft', '3');
+    eq(await rowVal('Sheathing temperature'), '35.5°F');
+    has(await page.textContent('#outHero'), 'Meets IRC');
+  });
+  await test('Dew point: 70°F at 35% → 41.1°F; window U-0.30 at 0°F → max 61%', async () => {
+    await openTool('dewpoint', 'dp');
+    await setField('t', '70'); await setField('rh', '35');
+    eq(await rowVal('Dew point'), '41.1°F');
+    await openTool('dewpoint', 'win');
+    await setField('tout', '0');
+    eq(await rowVal('Max indoor humidity'), '61%');
+    eq(await rowVal('Inside glass temperature'), '55.7°F');
+    await setField('rh', '65');
+    has(await page.textContent('#outHero'), 'Glass will sweat');
+  });
+  await test('Blower door: 1,000 CFM50, 2,000 sq ft × 8\' → 3.75 ACH50, fails, max 800', async () => {
+    await openTool('blower');
+    await setField('floor', '2000');
+    eq(await rowVal('Max CFM50 to pass'), '800 CFM');
+    await setField('cfm', '1000');
+    eq(await rowVal('ACH50'), '3.75');
+    has(await page.textContent('#outHero'), 'find and seal 200 CFM50');
+  });
+  await test('Ventilation: 2,000 sq ft, 3 BR → IRC 50 CFM; 50% run → 100 CFM', async () => {
+    await openTool('vent');
+    await setField('floor', '2000'); await setField('br', '3');
+    eq(await rowVal('Fan size (IRC)'), '50 CFM');
+    eq(await rowVal('Fan size (ASHRAE 62.2)'), '90 CFM');
+    await pick('vent', 'run', '50');
+    eq(await rowVal('Fan size (IRC)'), '100 CFM');
+  });
+  await test('Heat loss: one surface 100 sq ft R-20, 70/-10 → 400 BTU/h', async () => {
+    await openTool('heatloss', 'surf');
+    await setField('a', '100'); await setField('r', '20'); await setField('tout', '-10');
+    eq(await rowVal('Heat loss'), '400 BTU/h');
+  });
+  await test('Heat loss: whole house at 7,700 ft → 13,862 BTU/h', async () => {
+    await openTool('heatloss', 'house');
+    await setField('tout', '-10');
+    await setField('wa', '1000'); await setField('wr', '20'); await setField('ga', '200');
+    await setField('ca', '1000'); await setField('cr', '50');
+    await setField('vol', '16000'); await setField('ach', '3'); await setField('elev', '7700');
+    eq(await rowVal('Heat loss'), '13,862 BTU/h');
+    eq(await rowVal('Air leakage'), '3,462 BTU/h');
+  });
+  await test('Attic: 1,000 sq ft, R-11 → R-49 cellulose → 10-7/8" settled, 25 bags, 4 markers', async () => {
+    await openTool('attic');
+    await setField('area', '1000'); await setField('ex', '11');
+    eq(await rowVal('Settled depth to add'), '10-7/8"');
+    eq(await rowVal('Depth markers'), '4');
+    await setField('cov', '40');
+    eq(await rowVal('Bags'), '25');
+  });
+  await test('every tool has a How to use panel, closed until tapped', async () => {
+    const ids = await page.evaluate(() => Array.from(document.querySelectorAll('#tiles [data-tool-open]')).length);
+    const all = ['rightangle', 'grade', 'rafters', 'stairs', 'concrete', 'dirt', 'gravel', 'rebar', 'block', 'lumber', 'sheets', 'area', 'circles',
+      'convert', 'markup', 'labor', 'offsets', 'mortgage', 'payoff', 'netsheet', 'proration', 'invest', 'conloan', 'ppsf',
+      'rvalue', 'dewpoint', 'blower', 'vent', 'heatloss', 'attic'];
+    for (const id of all) {
+      await page.goto(BASE + '#/t/' + id); await page.waitForSelector('#screen-tool:not([hidden])');
+      const h = await page.evaluate(() => { const d = document.querySelector('#toolBody details.howto'); return d ? { open: d.open, text: d.textContent.length } : null; });
+      if (!h) throw new Error(id + ' has no How to use');
+      if (h.open) throw new Error(id + ' How to use starts open');
+      if (h.text < 120) throw new Error(id + ' How to use is too short');
+    }
+    await page.click('#toolBody details.howto summary');
+    eq(await page.evaluate(() => document.querySelector('#toolBody details.howto').open), true);
+    has(await page.textContent('#toolBody .howto-body'), 'How:');
+  });
+  await test('How to use stays open when switching modes', async () => {
+    await page.goto(BASE + '#/t/concrete'); await page.waitForSelector('#screen-tool:not([hidden])');
+    await page.click('#toolBody details.howto summary');
+    await page.click('#toolBody [data-mode="footing"]');
+    eq(await page.evaluate(() => document.querySelector('#toolBody details.howto').open), true);
+  });
+  await test('search finds building science tools by plain words', async () => {
+    await page.goto(BASE + '#/tools'); await page.waitForSelector('#screen-tools:not([hidden])');
+    for (const [q, id] of [['dew point', 'dewpoint'], ['blower', 'blower'], ['erv', 'vent'], ['furnace', 'heatloss'], ['cellulose', 'attic'], ['u-factor', 'rvalue']]) {
+      await page.fill('#toolSearch', q);
+      const hits = await page.$$eval('#tiles [data-tool-open]', (els) => els.map((e) => e.dataset.toolOpen));
+      if (hits.indexOf(id) < 0) throw new Error('"' + q + '" did not find ' + id);
+    }
+    await page.fill('#toolSearch', '');
+  });
   await test('new tools fit a 320 px phone with no sideways scroll', async () => {
     const c2 = await browser.newContext({ viewport: { width: 320, height: 568 }, isMobile: true, hasTouch: true });
     const p2 = await c2.newPage();
-    for (const id of ['mortgage', 'invest', 'offsets', 'convert', 'proration', 'labor']) {
+    for (const id of ['mortgage', 'invest', 'offsets', 'convert', 'proration', 'labor', 'rvalue', 'dewpoint', 'blower', 'vent', 'heatloss', 'attic', 'concrete', 'dirt']) {
       await p2.goto(BASE + '#/t/' + id); await p2.waitForSelector('#screen-tool:not([hidden])');
+      await p2.click('#toolBody details.howto summary');
       const o = await p2.evaluate(() => ({ sw: document.documentElement.scrollWidth, w: innerWidth, bw: document.querySelector('#screen-tool').scrollWidth, cw: document.querySelector('#screen-tool').clientWidth }));
       if (o.sw > o.w || o.bw > o.cw) throw new Error(id + ' overflows sideways');
     }

@@ -271,7 +271,10 @@
     const r = C.rebarGrid({ L: 240, W: 240, spacing: 18, cover: 3, size: 4 });
     eq(r.bars, 28); near(r.lf, 546); eq(r.sticks, 28); near(r.lbs, 546 * 0.668); near(r.lap, 20);
   });
-  test('rebar grid 10x10 @12 → 2 bars per stick', () => eq(C.rebarGrid({ L: 120, W: 120, spacing: 12, cover: 3, size: 4 }).sticks, 10));
+  test('rebar grid 10x10 @12 → 11 bars each way, 2 per stick', () => {
+    const r = C.rebarGrid({ L: 120, W: 120, spacing: 12, cover: 3, size: 4 });
+    eq(r.nAlongL, 11); eq(r.nAlongW, 11); eq(r.sticks, 12);
+  });
   test('rebar long bars get lap splices', () => {
     const r = C.rebarLinear({ length: 1200, count: 2, size: 4, dowelSpacing: 24, dowelLength: 30 });
     eq(r.splices, 10); eq(r.dowels, 51); near(r.lengthIn, 2 * 1300 + 51 * 30); eq(r.sticks, 12 + 7);
@@ -415,6 +418,103 @@
   test('pressure: 1 psi = 2.309 ft head', () => near(C.convertUnits('pressure', 1, 'psi').find((u) => u.id === 'fthead').value, 2.30892, 1e-4));
   test('power: 1 ton = 12,000 BTU/h = 3.517 kW', () => near(C.convertUnits('power', 1, 'tonr').find((u) => u.id === 'kw').value, 3.5169, 1e-3));
   test('temperature', () => { near(C.convertTemp(212, 'f').c, 100); near(C.convertTemp(0, 'c').f, 32); near(C.convertTemp(0, 'k').c, -273.15); });
+
+  // ---------------------------------------------------------------- v10 accuracy fixes
+  test('rebar grid rounds up: 21\' slab @ 18" (3" cover) → 15 bars', () => {
+    const r = C.rebarGrid({ L: 252, W: 252, spacing: 18, cover: 3, size: 4 });
+    eq(r.nAlongL, 15); eq(r.nAlongW, 15);
+    // no gap wider than the spacing
+    if (r.barW / (r.nAlongL - 1) > 18 + 1e-9) throw new Error('gap wider than spacing');
+  });
+  test('rebar exact multiple keeps count: 18\' @ 12" no cover → 19 bars', () => eq(C.rebarGrid({ L: 216, W: 216, spacing: 12, size: 4 }).nAlongL, 19));
+  test('dowels round up', () => eq(C.rebarLinear({ length: 250, count: 2, size: 4, dowelSpacing: 24, dowelLength: 30 }).dowels, 12));
+  test('typos are rejected, not added', () => {
+    ['12 6', '12 6"', '1.5.5', '1 m 20', '1/2 3/4', '5.5 1/2', '12\' 6 7'].forEach((s) => throws(() => ev(s)));
+  });
+  test('valid mixed forms still parse', () => {
+    near(ev('7 3/8').v, 7.375); near(ev('7 3/8"').v, 7.375); near(ev(`12' 7" 3/8`).v, 151.375);
+    near(ev(`12' 6 1/2`).v, 150.5); near(ev('1 1/2 in').v, 1.5); near(ev('2 m 50 cm').v, 250 / 2.54);
+  });
+  test('stored full-precision refs', () => {
+    const refs = [{ v: 1200 / 7, d: 1 }];
+    near(C.evaluate('\u27E80\u27E9 × 7', refs).v, 1200, 1e-12);
+    eq(C.formatFtIn(C.evaluate('\u27E80\u27E9 × 7', refs).v, 16), "100' 0\"");
+    throws(() => C.evaluate('\u27E85\u27E9', refs));
+  });
+  test('quantity 0 is an error', () => {
+    throws(() => C.box(12, 12, 12, 0), /more than 0/);
+    throws(() => C.column(12, 12, 0));
+    throws(() => C.boardFeet(2, 4, 96, 0));
+    near(C.box(12, 12, 12), 1728);
+  });
+  test('conduit shrink uses the field table', () => {
+    near(C.pipeOffset(10, 45).shrink, 3 / 8); near(C.pipeOffset(10, 30).shrink, 1 / 4);
+    near(C.pipeOffset(10, 22.5).shrink, 3 / 16); near(C.pipeOffset(10, 60).shrink, 1 / 2);
+    eq(C.pipeOffset(10, 11.25).shrinkApprox, true);
+  });
+  test('no -$0.00', () => { eq(C.money(-0.001), '$0.00'); eq(C.money(-0.006), '-$0.01'); eq(C.money(1234.5), '$1,234.50'); });
+  test('station list flags when cut at 400', () => {
+    eq(C.gradeElevations({ start: 0, end: -120, dist: 12000, interval: 12 }).truncated, true);
+    eq(C.gradeElevations({ start: 0, end: -120, dist: 1200, interval: 12 }).truncated, false);
+  });
+
+  // ---------------------------------------------------------------- building science
+  test('whole-wall R matches published parallel-path examples (2×6 @16", 25% framing)', () => {
+    // continuousinsulation.org "Energy Code Math Lesson": R-25 cavity → U 0.0538; R-20 + R-5 ci → U 0.0446
+    near(C.wallR({ framing: '2x6', oc: 16, cavityR: 25 }).U, 0.0538, 0.00005);
+    near(C.wallR({ framing: '2x6', oc: 16, cavityR: 20, ciR: 5 }).U, 0.0446, 0.00005);
+    near(C.wallR({ framing: '2x6', oc: 16, cavityR: 20, ciR: 5 }).R, 22.43, 0.01);
+  });
+  test('wall R: 24" O.C. uses 22% framing; no studs = layers only', () => {
+    eq(C.wallR({ framing: '2x6', oc: 24, cavityR: 21 }).ff, 0.22);
+    near(C.wallR({ framing: 'none', cavityR: 0, ciR: 20 }).R, 22.54, 1e-9);
+    throws(() => C.wallR({ framing: '2x4', oc: 16 }));
+  });
+  test('dew point: 70°F / 50% ≈ 50.5°F, 100% RH = air temp', () => {
+    near(C.dewPoint(70, 50), 50.5, 0.1); near(C.dewPoint(55, 100), 55, 1e-9);
+    throws(() => C.dewPoint(70, 0));
+  });
+  test('max RH before a surface sweats is consistent with dew point', () => {
+    const rh = C.maxRhForSurface(70, 45);
+    near(C.dewPoint(70, rh), 45, 1e-6);
+  });
+  test('window glass temp: U-0.30, 70/0 → 55.72°F', () => near(C.surfaceTemp(70, 0, 0.3), 55.72, 1e-9));
+  test('sheathing check: foam needed puts the sheathing exactly at the dew point', () => {
+    const c = C.sheathingCheck({ cavityR: 21, ciR: 0, inF: 70, rh: 35, outF: 10 });
+    const c2 = C.sheathingCheck({ cavityR: 21, ciR: c.ciNeeded, inF: 70, rh: 35, outF: 10 });
+    near(c2.sheathingF, c.dew, 1e-9); eq(c.ok, false);
+    eq(C.IRC_CI_MIN[7]['2x6'], 15); eq(C.IRC_CI_MIN[5]['2x4'], 5);
+  });
+  test('blower door: 1,000 CFM50 in 16,000 cu ft → 3.75 ACH50; 3 ACH50 → 800 max', () => {
+    const b = C.blowerDoor({ cfm50: 1000, volume: 16000, target: 3 });
+    near(b.ach50, 3.75); near(b.maxCfm50, 800); eq(b.pass, false);
+    eq(C.blowerDoor({ volume: 16000 }).ach50, null);
+  });
+  test('ventilation: IRC 0.01A + 7.5(N+1); ASHRAE 0.03A + 7.5(N+1); run-time factors', () => {
+    const v = C.ventilation({ floor: 2000, bedrooms: 3 });
+    near(v.irc, 50); near(v.ashrae, 90);
+    near(C.ventilation({ floor: 2000, bedrooms: 3, runPct: 33 }).ircFan, 150);
+    near(C.ventilation({ floor: 2000, bedrooms: 3, runPct: 75 }).ircFan, 65);
+  });
+  test('altitude factor matches ACCA table (5,000 ft ≈ 0.83, 7,700 ft ≈ 0.75)', () => {
+    near(C.altitudeFactor(0), 1); near(C.altitudeFactor(5000), 0.832, 0.001); near(C.altitudeFactor(7700), 0.751, 0.001);
+  });
+  test('heat loss: conduction + air leakage at altitude', () => {
+    const h = C.heatLoss({ inF: 70, outF: -10, elev: 7700, volume: 16000, ach50: 3,
+      surfaces: [{ key: 'w', name: 'wall', area: 1000, r: 20 }, { key: 'g', name: 'window', area: 200, u: 0.3 }, { key: 'c', name: 'ceiling', area: 1000, r: 50 }] });
+    near(h.total, 4000 + 4800 + 1600 + 1.08 * C.altitudeFactor(7700) * 3 / 15 * 16000 / 60 * 80, 1e-6);
+    throws(() => C.heatLoss({ inF: 70, outF: 0, surfaces: [{ key: 'w', name: 'wall', area: 100 }] }), /wall R-value/);
+    throws(() => C.heatLoss({ inF: 70, outF: 80, surfaces: [] }));
+  });
+  test('heat recovery cuts ventilation loss', () => {
+    const a = C.heatLoss({ inF: 70, outF: 0, ventCfm: 100 }).total, b = C.heatLoss({ inF: 70, outF: 0, ventCfm: 100, recoveryPct: 75 }).total;
+    near(a, 7560); near(b, 1890);
+  });
+  test('attic: R-11 → R-49 with cellulose = 10.86" settled, 4 markers per 1,000 sq ft', () => {
+    const a = C.atticInsulation({ area: 1000, targetR: 49, existingR: 11, material: 'cellulose', coverage: 40 });
+    near(a.depth, 38 / 3.5); eq(a.bags, 25); eq(a.markers, 4);
+    eq(C.atticInsulation({ area: 1000, targetR: 30, existingR: 38, material: 'fiberglass' }).done, true);
+  });
 
   // ---------------------------------------------------------------- report
   failures.forEach((f) => log('FAIL  ' + f));
