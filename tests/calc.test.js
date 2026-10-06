@@ -516,6 +516,34 @@
     eq(C.atticInsulation({ area: 1000, targetR: 30, existingR: 38, material: 'fiberglass' }).done, true);
   });
 
+  // ---------------------------------------------------------------- Construction Master–style entry
+  test('fraction with no denominator uses the precision (3/ → 3/16)', () => {
+    near(C.evaluate(`7" 3/`, null, { den: 16 }).v, 7 + 3 / 16);
+    near(C.evaluate(`5' 7 3/`, null, { den: 8 }).v, 67 + 3 / 8);
+    near(C.evaluate(`3/ + 1/`, null, { den: 16 }).v, 4 / 16);
+    throws(() => C.evaluate('3/'), /Finish the fraction/);
+  });
+  test('slash before ( is still division', () => near(C.evaluate('12/(2+1)', null, { den: 16 }).v, 4));
+  test('rise/run memory: rise + run → diag, pitch, grade', () => {
+    let m = C.rtStore(null, 'rise', 36);
+    throws(() => C.rtSolve(m), /two/);
+    m = C.rtStore(m, 'run', 48);
+    const r = C.rtSolve(m);
+    near(r.diag, 60); near(r.pitch, 9); near(r.pct, 75);
+  });
+  test('rise/run memory keeps the two latest entries', () => {
+    let m = C.rtStore(null, 'rise', 36);
+    m = C.rtStore(m, 'run', 48);
+    m = C.rtStore(m, 'pitch', 6);          // now run + pitch
+    near(C.rtSolve(m).rise, 24);
+    m = C.rtStore(m, 'pct', 50);           // angle replaced, still run + angle
+    near(C.rtSolve(m).rise, 24);
+    m = C.rtStore(m, 'diag', 60);          // angle + diag
+    near(C.rtSolve(m).run, 60 * Math.cos(Math.atan(0.5)));
+    m = C.rtStore(m, 'deg', 45);           // diag + angle (degrees)
+    near(C.rtSolve(m).rise, 60 * Math.SQRT1_2);
+  });
+
   // ---------------------------------------------------------------- report
   failures.forEach((f) => log('FAIL  ' + f));
   log(pass + ' passed, ' + fail + ' failed');
