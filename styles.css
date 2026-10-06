@@ -199,6 +199,28 @@ body.sheet-open .screen.scroll { padding-bottom: 62vh; }
 .keypad .k svg { width: clamp(20px, 3.4dvh, 28px); height: clamp(20px, 3.4dvh, 28px); }
 .k:active { transform: scale(0.96); filter: brightness(1.25); }
 
+/* Construction Master layout: 5 columns × 5 rows (units row on top, ON/C · CONV · MORE · = on the right). */
+.keypad.cm { grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-rows: repeat(5, minmax(0, 1fr)); max-height: 440px; }
+.keypad.cm .k.eq { grid-column: auto; }
+.keypad.cm .k.unit { letter-spacing: 0.02em; }
+.keypad.cm .k.frac { font: 600 clamp(24px, 4.4dvh, 36px)/1 var(--sans); }
+.keypad.cm .k.txt { font-size: clamp(14px, 2.4dvh, 19px); letter-spacing: 0.02em; }
+
+/* Rise / Run / Diag / Pitch / Grade keys, each showing its value */
+.strip.rt { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.rt-key {
+  height: 48px; min-width: 0; padding: 2px 3px; border-radius: 10px;
+  border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text-2);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+}
+.rt-l { font: 700 15px/1 var(--cond); letter-spacing: 0.08em; }
+.rt-v { font: 600 13px/1 var(--cond); color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 13px; }
+.rt-key.set { border-color: var(--accent); }
+.rt-key.set .rt-v { color: var(--accent); }
+.rt-key.solved .rt-v { color: var(--text); }
+.rt-key:active { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.rt-key:active .rt-v { color: var(--accent-fg); }
+
 .more {
   position: absolute; left: 16px; right: 16px; bottom: 12px; z-index: 5;
   background: var(--surface); border: 1px solid var(--line-2); border-radius: 18px; padding: 10px;

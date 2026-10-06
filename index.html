@@ -39,46 +39,54 @@
       <div class="meta"><span id="metaL"></span><span id="metaR"></span></div>
     </section>
 
-    <div class="strip" id="strip">
-      <button data-k="yd" class="pill">yd</button>
-      <button data-k="m" class="pill">m</button>
-      <button data-k="cm" class="pill">cm</button>
-      <button data-k="mm" class="pill">mm</button>
-      <button data-k="more" class="pill wide" aria-label="Square, cubic and more functions">sq/cu √ ( )</button>
+    <!-- Construction Master–style right-angle keys: enter a value then tap to store it;
+         tap with nothing entered to solve. Each key shows its stored / solved value. -->
+    <div class="strip rt" id="strip">
+      <button data-k="rise" class="rt-key"><span class="rt-l">RISE</span><span class="rt-v" id="rt-rise"></span></button>
+      <button data-k="run" class="rt-key"><span class="rt-l">RUN</span><span class="rt-v" id="rt-run"></span></button>
+      <button data-k="diag" class="rt-key"><span class="rt-l">DIAG</span><span class="rt-v" id="rt-diag"></span></button>
+      <button data-k="pitch" class="rt-key"><span class="rt-l">PITCH</span><span class="rt-v" id="rt-pitch"></span></button>
+      <button data-k="grade" class="rt-key"><span class="rt-l">GRADE</span><span class="rt-v" id="rt-grade"></span></button>
     </div>
 
-    <div class="keypad" id="keypad">
-      <button data-k="ft" class="k unit">FT</button>
-      <button data-k="in" class="k unit">IN</button>
-      <button data-k="/" class="k unit" aria-label="Fraction">a/b</button>
+    <div class="keypad cm" id="keypad">
+      <button data-k="yd" class="k unit">YDS</button>
+      <button data-k="ft" class="k unit">FEET</button>
+      <button data-k="in" class="k unit">INCH</button>
+      <button data-k="/" class="k unit frac" aria-label="Fraction">/</button>
       <button data-k="bs" class="k fn" aria-label="Backspace"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h11v14H9l-6-7z"/><path d="M12 9l5 6M17 9l-5 6"/></svg></button>
 
       <button data-k="7" class="k">7</button>
       <button data-k="8" class="k">8</button>
       <button data-k="9" class="k">9</button>
       <button data-k="÷" class="k op">÷</button>
+      <button data-k="ac" class="k fn txt">ON/C</button>
 
       <button data-k="4" class="k">4</button>
       <button data-k="5" class="k">5</button>
       <button data-k="6" class="k">6</button>
       <button data-k="×" class="k op">×</button>
+      <button data-k="conv" class="k fn txt">CONV</button>
 
       <button data-k="1" class="k">1</button>
       <button data-k="2" class="k">2</button>
       <button data-k="3" class="k">3</button>
       <button data-k="−" class="k op">−</button>
+      <button data-k="more" class="k fn txt" aria-label="Metric, square, cubic and more functions">MORE</button>
 
       <button data-k="0" class="k">0</button>
       <button data-k="." class="k">.</button>
-      <button data-k="ac" class="k fn txt">AC</button>
+      <button data-k="neg" class="k fn" aria-label="Plus or minus">±</button>
       <button data-k="+" class="k op">+</button>
-
-      <button data-k="conv" class="k fn txt sm">CONV</button>
       <button data-k="=" class="k eq">=</button>
     </div>
 
     <div class="more" id="more" hidden>
       <div class="more-grid">
+        <button data-k="m" class="pill">m</button>
+        <button data-k="cm" class="pill">cm</button>
+        <button data-k="mm" class="pill">mm</button>
+        <button data-k="√" class="k fn">√</button>
         <button data-k="sq ft" class="pill">sq ft</button>
         <button data-k="sq in" class="pill">sq in</button>
         <button data-k="sq yd" class="pill">sq yd</button>
@@ -89,10 +97,8 @@
         <button data-k="cu m" class="pill">cu m</button>
         <button data-k="(" class="k fn">(</button>
         <button data-k=")" class="k fn">)</button>
-        <button data-k="√" class="k fn">√</button>
         <button data-k="²" class="k fn">x²</button>
-        <button data-k="neg" class="k fn" aria-label="Plus or minus">±</button>
-        <button data-k="close" class="k eq txt sm" style="grid-column: span 3">CLOSE</button>
+        <button data-k="close" class="k eq txt sm">CLOSE</button>
       </div>
     </div>
   </main>

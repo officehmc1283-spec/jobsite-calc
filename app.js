@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const C = window.Calc;
-  const APP_VERSION = '11';
+  const APP_VERSION = '12';
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -55,13 +55,15 @@
   const fmtLen = (inches, style) => style === 'in' ? C.formatInches(inches, prec()) : C.formatFtIn(inches, prec());
 
   // ================================================================ calculator
-  const st = { expr: '', last: null, lastExpr: '', lastRaw: '', justEvaluated: false, error: '', refs: [] };
+  const st = { expr: '', last: null, lastExpr: '', lastRaw: '', justEvaluated: false, error: '', refs: [],
+    lastKind: '', rtTag: '', rtText: '', rtMeta: null, pitchCycle: -1 };
+  let rt = store.get('rt', null);   // Rise/Run/Diag/Pitch memory (two latest entries)
   // A chained result or tape entry goes into the expression as ⟨n⟩ so the math keeps
   // full precision (100' ÷ 7 × 7 = exactly 100'), while the display shows it rounded.
   const REF_RE = /\u27E8(\d+)\u27E9/g;
   function refOf(val) { st.refs.push({ v: val.v, d: val.d }); return '\u27E8' + (st.refs.length - 1) + '\u27E9'; }
   const showRefs = (s) => s.replace(REF_RE, (m, i) => st.refs[+i] ? fmtVal(st.refs[+i]) : '?');
-  const evalExpr = (s) => C.evaluate(s, st.refs);
+  const evalExpr = (s) => C.evaluate(s, st.refs, { den: prec() });   // "3/" = 3/16 at 1/16 precision
 
   function addToTape(e, val) {
     tape.push({ e, v: val.v, d: val.d });
@@ -106,7 +108,9 @@
     const exprEl = $('#expr');
     const resEl = $('#result');
     resEl.className = 'result';
-    if (st.justEvaluated) {
+    if (st.justEvaluated && st.rtTag) {
+      exprEl.textContent = st.rtTag;
+    } else if (st.justEvaluated) {
       exprEl.textContent = st.lastExpr + ' =';
     } else {
       exprEl.innerHTML = esc(pretty(st.expr)) + (/\s$/.test(st.expr) ? ' ' : '') + '<span class="cursor"></span>';
@@ -117,7 +121,7 @@
       resEl.classList.add('error');
     } else if (st.justEvaluated) {
       val = st.last;
-      resEl.textContent = fmtVal(val);
+      resEl.textContent = st.rtText || fmtVal(val);
     } else {
       val = currentValue();
       if (val) { resEl.textContent = fmtVal(val); resEl.classList.add('preview'); }
@@ -131,10 +135,118 @@
     const alts = val && !st.error ? (ALT[d] || []) : [];
     $('#metaL').textContent = alts[0] ? altText(val, alts[0]) : '';
     $('#metaR').textContent = alts[1] ? altText(val, alts[1]) : '';
+    if (st.justEvaluated && st.rtMeta && !st.error) {
+      $('#metaL').textContent = st.rtMeta[0];
+      $('#metaR').textContent = st.rtMeta[1];
+    }
+    renderRt();
+  }
+
+  // ---------------------------------------------------------------- Rise / Run / Diag / Pitch / Grade
+  // Construction Master style: type a value, tap RISE (etc.) to store it. With nothing typed,
+  // the key solves from the two latest entries. PITCH: inches = x/12 ("9 INCH PITCH"), no unit = degrees.
+  // GRADE: percent. Tapping PITCH again cycles x/12 → degrees → percent. ON/C twice clears them.
+  const RT_LABEL = { rise: 'RISE', run: 'RUN', diag: 'DIAG', pitch: 'PITCH', grade: 'GRADE' };
+  const pitchText = (p) => C.formatInches(p, prec()).replace('"', '') + '/12';
+  const rtAngleText = (a) => a.kind === 'pitch' ? pitchText(a.v) : a.kind === 'deg' ? C.fmtNum(a.v, 2) + '°' : C.fmtNum(a.v, 2) + '%';
+
+  function solveRt() { try { return C.rtSolve(rt); } catch (e) { return null; } }
+
+  function renderRt() {
+    const r = solveRt();
+    const entered = (slot) => !!(rt && rt.order.indexOf(slot) >= 0);
+    const ang = entered('angle') ? rt.vals.angle : null;
+    const cells = {
+      rise: [entered('rise'), r ? fmtLen(r.rise) : entered('rise') ? fmtLen(rt.vals.rise) : ''],
+      run: [entered('run'), r ? fmtLen(r.run) : entered('run') ? fmtLen(rt.vals.run) : ''],
+      diag: [entered('diag'), r ? fmtLen(r.diag) : entered('diag') ? fmtLen(rt.vals.diag) : ''],
+      pitch: [!!ang && ang.kind !== 'pct', r ? pitchText(r.pitch) : ang && ang.kind !== 'pct' ? rtAngleText(ang) : ''],
+      grade: [!!ang && ang.kind === 'pct', r ? C.fmtNum(r.pct, 2) + '%' : ang && ang.kind === 'pct' ? rtAngleText(ang) : '']
+    };
+    Object.keys(cells).forEach((k) => {
+      const el = $('#rt-' + k);
+      if (!el) return;
+      el.textContent = cells[k][1];
+      el.parentNode.classList.toggle('set', cells[k][0]);
+      el.parentNode.classList.toggle('solved', !cells[k][0] && !!cells[k][1]);
+    });
+  }
+
+  function rtShow(val, tag, text, meta) {
+    st.last = val;
+    st.lastKind = 'rt';
+    st.justEvaluated = true;
+    st.expr = '';
+    st.rtTag = tag;
+    st.rtText = text || '';
+    st.rtMeta = meta || null;
+  }
+
+  function rtKey(k) {
+    const typed = !st.justEvaluated && st.expr.trim();
+    const fromEquals = st.justEvaluated && st.lastKind === 'calc' && st.last;
+    const fail = (msg) => { st.error = msg; renderCalc(); };
+
+    if (typed || fromEquals) {
+      // ---- store the entry
+      let val;
+      if (typed) { try { val = evalExpr(st.expr); } catch (e) { return fail(e.message); } }
+      else val = st.last;
+      let key = k, num = val.v;
+      if (k === 'rise' || k === 'run' || k === 'diag') {
+        if (val.d > 1) return fail(RT_LABEL[k] + ' needs a length');
+        if (!(num > 0)) return fail(RT_LABEL[k] + ' must be more than zero');
+      } else if (k === 'pitch') {
+        if (val.d === 1) key = 'pitch';            // 9 INCH → 9/12
+        else if (val.d === 0) key = 'deg';         // plain number → degrees
+        else return fail('Pitch: enter inches (9 INCH = 9/12) or degrees');
+        if (!(num > 0) || (key === 'deg' && num >= 90)) return fail('Pitch must be between 0 and 90°');
+      } else {
+        if (val.d !== 0) return fail('Grade is a percent — enter a plain number');
+        if (!(num > 0)) return fail('Grade must be more than zero');
+        key = 'pct';
+      }
+      rt = C.rtStore(rt, key, num);
+      store.set('rt', rt);
+      st.pitchCycle = -1;
+      const shown = key === 'pitch' || key === 'deg' || key === 'pct'
+        ? { v: num, d: key === 'pitch' ? 1 : 0 } : { v: num, d: 1 };
+      let text = '', meta = null;
+      if (key === 'pitch' || key === 'deg' || key === 'pct') {
+        // show the same slope the other two ways underneath
+        const p = key === 'pitch' ? num : key === 'deg' ? 12 * Math.tan(num * Math.PI / 180) : 12 * num / 100;
+        const all = { pitch: pitchText(p), deg: C.fmtNum(Math.atan(p / 12) * 180 / Math.PI, 2) + '°', pct: C.fmtNum(100 * p / 12, 2) + '%' };
+        text = all[key];
+        meta = ['pitch', 'deg', 'pct'].filter((x) => x !== key).map((x) => all[x]);
+      }
+      rtShow(shown, RT_LABEL[k] + ' — stored', text, meta);
+      return renderCalc();
+    }
+
+    // ---- nothing typed: solve
+    let r;
+    try { r = C.rtSolve(rt); } catch (e) { return fail(e.message); }
+    const deg = C.fmtNum(r.deg, 2) + '°', pct = C.fmtNum(r.pct, 2) + '%';
+    let val, tag, text = '', meta = null;
+    if (k === 'pitch') {
+      st.pitchCycle = st.lastKind === 'rt' && st.pitchCycle >= 0 ? (st.pitchCycle + 1) % 3 : 0;
+      if (st.pitchCycle === 0) { val = { v: r.pitch, d: 1 }; tag = 'PITCH (IN 12)'; text = pitchText(r.pitch); meta = [deg, pct]; }
+      else if (st.pitchCycle === 1) { val = { v: r.deg, d: 0 }; tag = 'PITCH (DEGREES)'; text = deg; meta = [pitchText(r.pitch), pct]; }
+      else { val = { v: r.pct, d: 0 }; tag = 'PITCH (% GRADE)'; text = pct; meta = [pitchText(r.pitch), deg]; }
+    } else {
+      st.pitchCycle = -1;
+      if (k === 'grade') { val = { v: r.pct, d: 0 }; tag = 'GRADE'; text = pct; meta = [pitchText(r.pitch), deg]; }
+      else { val = { v: r[k], d: 1 }; tag = RT_LABEL[k]; }
+    }
+    const pitchCycle = st.pitchCycle;
+    rtShow(val, tag, text, meta);
+    st.pitchCycle = pitchCycle;
+    addToTape(tag.charAt(0) + tag.slice(1).toLowerCase() + ' · rise ' + fmtLen(r.rise) + ', run ' + fmtLen(r.run), val);
+    renderCalc();
   }
 
   // 7" 3/8 → 7-3/8"  (display only; both forms parse the same)
-  const pretty = (s) => showRefs(s).replace(/(\d+)" (\d+\/\d+)(?![\d/.])/g, '$1-$2"').replace(/\s+/g, ' ').trim();
+  const pretty = (s) => showRefs(s).replace(/(\d+)" (\d+\/\d*)(?![\d/.])/g, '$1-$2"').replace(/\s+/g, ' ').trim();
 
   const endsWithOperator = (s) => /[+\-−×÷(√]\s*$/.test(s);
   const endsWithRef = (s) => /\u27E9\s*$/.test(s);
@@ -150,6 +262,12 @@
 
   function calcKey(k) {
     st.error = '';
+    if (RT_LABEL[k]) return rtKey(k);
+    if (k !== 'conv' && k !== 'more' && k !== 'close') {
+      if (st.justEvaluated && st.rtText && k !== 'ac' && k !== 'bs') st.rtText = '';  // keep math on the stored number
+      st.pitchCycle = -1;
+    }
+    if (k === 'conv' && st.rtText) { st.rtText = ''; st.rtMeta = null; }
     if (/^[0-9.]$/.test(k)) {
       freshIfEvaluated();
       st.expr += k;
@@ -188,7 +306,7 @@
       if (st.expr.trim()) st.expr = '-(' + st.expr.trim() + ')';
       $('#more').hidden = true;
     } else if (k === 'bs') {
-      if (st.justEvaluated) { st.expr = st.lastRaw; st.justEvaluated = false; }
+      if (st.justEvaluated) { st.expr = st.rtTag ? '' : st.lastRaw; st.justEvaluated = false; st.rtTag = ''; st.rtText = ''; st.rtMeta = null; }
       else if (endsWithRef(st.expr)) {
         st.expr = st.expr.trimEnd().replace(/\u27E8\d+\u27E9$/, '').trimEnd();
         if (endsWithOperator(st.expr) && !/[(√-]$/.test(st.expr)) st.expr += ' ';
@@ -197,7 +315,9 @@
         if (endsWithOperator(st.expr) && !/[(√-]$/.test(st.expr)) st.expr += ' ';
       }
     } else if (k === 'ac') {
-      st.expr = ''; st.justEvaluated = false; // st.last is kept for Ans
+      // ON/C twice (nothing left to clear) also clears Rise / Run / Pitch, like the Construction Master
+      if (!st.expr.trim() && !st.justEvaluated && rt) { rt = null; store.set('rt', null); toast('Rise / Run / Pitch cleared'); }
+      st.expr = ''; st.justEvaluated = false; st.rtTag = ''; st.rtText = ''; st.rtMeta = null; // st.last is kept for Ans
     } else if (k === 'conv') {
       const val = currentValue();
       const d = val ? val.d : 1;
@@ -214,8 +334,11 @@
         const val = evalExpr(st.expr);
         st.last = val;
         st.lastRaw = st.expr;
-        st.lastExpr = pretty(st.expr);
+        // a fraction left without a denominator is shown as what it meant: 3/ → 3/16
+        st.lastExpr = pretty(st.expr.replace(/(\d+)\/(?![\d.(⟨])/g, '$1/' + prec()));
         st.justEvaluated = true;
+        st.lastKind = 'calc';
+        st.rtTag = ''; st.rtText = ''; st.rtMeta = null;
         addToTape(st.lastExpr, val);
       } catch (e) {
         st.error = e.message;
@@ -1735,7 +1858,7 @@
       if (def == null) return null;
       return f.kind === 'len' ? def * C.IN[f.unit] : def;
     }
-    const val = C.evaluate(raw);
+    const val = C.evaluate(raw, null, { den: prec() });
     if (f.kind === 'any') return val;
     if (f.kind === 'len') {
       if (val.d === 0) return val.v * C.IN[f.unit];
@@ -2358,6 +2481,21 @@
   }
 
   // ================================================================ events
+  // Keypad keys fire on finger-down: exactly one entry per press, however fast you tap,
+  // and no waiting for the browser's click. The click that follows is ignored (below).
+  function pressKey(t) {
+    buzz();
+    if (t.dataset.k) calcKey(t.dataset.k);
+    else fieldKeyPress(t.dataset.fk);
+  }
+  document.addEventListener('pointerdown', (ev) => {
+    if (ev.button > 0 || !ev.isPrimary && ev.pointerType === 'mouse') return;
+    const t = ev.target.closest('[data-k], [data-fk]');
+    if (!t || t.disabled) return;
+    ev.preventDefault();   // no focus ring / text selection on the key
+    pressKey(t);
+  });
+
   document.addEventListener('click', (ev) => {
     const t = ev.target.closest('button, li[data-i], .row[data-v], .hero[data-v]');
     if (!t) {
@@ -2365,8 +2503,11 @@
       return;
     }
     if (t.dataset.go) return showScreen(t.dataset.go);
-    if (t.dataset.k) { buzz(); return calcKey(t.dataset.k); }
-    if (t.dataset.fk) { buzz(); return fieldKeyPress(t.dataset.fk); }
+    if (t.dataset.k || t.dataset.fk) {
+      // Already handled on pointerdown. Only keyboard / screen-reader activation (detail 0) runs here.
+      if (ev.detail === 0) pressKey(t);
+      return;
+    }
     if (t.matches('#tape li[data-i]')) return useTapeEntry(+t.dataset.i);
     if (t.dataset.toolOpen) return showScreen('tool', t.dataset.toolOpen);
     if (t.dataset.jobOpen) return showScreen('job', t.dataset.jobOpen);
@@ -2513,16 +2654,8 @@
   const stop = (e) => e.preventDefault();
   ['gesturestart', 'gesturechange', 'gestureend'].forEach((t) => document.addEventListener(t, stop, { passive: false }));
   document.addEventListener('touchmove', (e) => { if (e.touches.length > 1 || (e.scale && e.scale !== 1)) e.preventDefault(); }, { passive: false });
-  let lastTouchEnd = 0;
-  document.addEventListener('touchend', (e) => {
-    const now = Date.now();
-    if (now - lastTouchEnd < 350 && !e.target.closest('input')) {
-      e.preventDefault();                 // stop double-tap zoom…
-      const b = e.target.closest('button, li[data-i], .row[data-v], .hero[data-v]');
-      if (b) b.click();                   // …but keep the second tap working (fast key entry)
-    }
-    lastTouchEnd = now;
-  }, { passive: false });
+  // Double-tap zoom is turned off in CSS (touch-action), so taps are never re-sent by script —
+  // re-sending them is what made a quick double tap enter a digit three times.
   document.addEventListener('dblclick', stop, { passive: false });
   window.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
   document.addEventListener('keydown', (e) => {

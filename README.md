@@ -20,9 +20,22 @@ Plain HTML/CSS/JS: no frameworks, no build step, no internet needed after the fi
 
 ## Entering measurements
 
-* `12' 7-3/8"`: tap **12 Ft 7 In 3 / 8**. Numbers after a unit are added to it, so `12' 7" 3/8` works the same way.
+The keypad follows the Construction Master layout: **YDS FEET INCH /** above the numbers, **ON/C · CONV · MORE · =** down the right.
+
+* `12' 7-3/8"`: tap **12 FEET 7 INCH 3 / 8**. Numbers after a unit are added to it, so `12' 7" 3/8` works the same way.
+* Leave off the bottom number and it uses your precision: **7 INCH 3 /** = 7-3/16" at 1/16".
 * `7-3/8` (no spaces) is a mixed number. `7 − 3/8` (with spaces, or the − key) is subtraction.
-* Metric works too: `2.5 m`, `30 cm`, `600 mm`. Use **More** for sq/cu units, √ and x².
+* Metric works too: `2.5 m`, `30 cm`, `600 mm`. Use **More** for m/cm/mm, sq/cu units, √, x² and ( ).
+* Each key enters once per tap, however fast you tap.
+
+### Rise / Run / Diag / Pitch / Grade (on the calculator)
+
+* Type a value, then tap the key to store it: **8 FEET 6 INCH RUN**, **7 INCH PITCH** (= 7/12).
+  Pitch with no unit is degrees (**30 PITCH** = 30°); **GRADE** takes a percent (**5 GRADE** = 5%).
+* Tap a key with nothing typed to solve it from the last two values you entered: **DIAG** → 9' 10-1/16".
+  Tap **PITCH** again to cycle x/12 → degrees → percent.
+* The keys show the current values; yellow = values you entered. **ON/C** twice clears them.
+* A solved answer works like any result: tap × 2 = to keep going.
 * Units follow the math: ft × ft = sq ft, sq ft × in = cu ft, ft ÷ in = a plain count.
 * **Conv** cycles the result through ft-in, inches, decimal ft/in, yd, m, cm, mm (or the area/volume units).
 * In tool screens, a number typed without a unit uses the unit shown under the field ("no unit = feet").

@@ -25,8 +25,8 @@
     ['ws', /\s+/y],
     // 7-3/8  (mixed number, no spaces around the hyphen)
     ['mixed', /(\d+)-(\d+)\/(\d+)/y],
-    // 3/8
-    ['frac', /(\d+)\/(\d+)/y],
+    // 3/8 — or 3/ with no denominator (Construction Master style: uses the precision, e.g. 3/16)
+    ['frac', /(\d+)\/(\d+)?(?![\d.(⟨])/y],
     ['num', /(\d+\.?\d*|\.\d+)/y],
     // sq ft, cu yd, ft, in, ', " ...
     ['unit', /(?:(sq|cu)\.?\s*)?(feet|foot|ft|inches|inch|in|yards|yard|yd|meters|meter|metres|metre|mm|cm|m)(?![a-z])|['"]/yi],
@@ -36,7 +36,7 @@
   ];
   const TWO_NUMBERS = 'Two numbers in a row — add a unit or an operator';
 
-  function tokenize(src, refs) {
+  function tokenize(src, refs, opts) {
     const s = String(src)
       .replace(/[′‘’]/g, "'")
       .replace(/[″“”]/g, '"')
@@ -56,7 +56,8 @@
           if (den === 0) throw new Error('Fraction with zero denominator');
           out.push({ t: 'num', v: +m[1] + +m[2] / den, k: 'mixed' });
         } else if (type === 'frac') {
-          const den = +m[2];
+          if (m[2] === undefined && !(opts && opts.den)) throw new Error('Finish the fraction');
+          const den = m[2] === undefined ? opts.den : +m[2];
           if (den === 0) throw new Error('Fraction with zero denominator');
           out.push({ t: 'num', v: +m[1] / den, k: 'frac' });
         } else if (type === 'num') {
@@ -86,8 +87,9 @@
   }
 
   // ---------------------------------------------------------------- parser
-  function evaluate(src, refs) {
-    const toks = tokenize(src, refs);
+  // opts.den: denominator for a fraction typed without one ("3/" → 3/16)
+  function evaluate(src, refs, opts) {
+    const toks = tokenize(src, refs, opts);
     if (!toks.length) throw new Error('Empty');
     let p = 0;
     const peek = () => toks[p];
@@ -356,6 +358,26 @@
       pct: 100 * rise / run,
       compDeg: 90 - a / RAD
     };
+  }
+
+  // Construction Master–style memory for the calculator's Rise / Run / Diag / Pitch / Grade keys.
+  // Keeps the two most recent entries (an angle counts once, however it was entered) and
+  // solves the triangle from them. key: rise | run | diag (inches) or pitch (x/12) | deg | pct.
+  function rtStore(mem, key, value) {
+    const slot = key === 'pitch' || key === 'deg' || key === 'pct' ? 'angle' : key;
+    const prev = mem && mem.order ? mem.order : [];
+    const vals = Object.assign({}, mem && mem.vals);
+    vals[slot] = slot === 'angle' ? { kind: key, v: value } : value;
+    return { order: prev.filter((k) => k !== slot).concat(slot).slice(-2), vals };
+  }
+  function rtSolve(mem) {
+    if (!mem || !mem.order || mem.order.length < 2) throw new Error('Enter two of Rise, Run, Diag, Pitch');
+    const o = {};
+    mem.order.forEach((slot) => {
+      if (slot === 'angle') o[mem.vals.angle.kind] = mem.vals.angle.v;
+      else o[slot] = mem.vals[slot];
+    });
+    return rightAngle(o);
   }
 
   // ---------------------------------------------------------------- 2. rafters
@@ -1206,6 +1228,7 @@
     MATERIALS, tonnage, thickEdgeSlab,
     REBAR, barRun, rebarGrid, rebarLinear, CMU_GROUT, blockWall,
     IN, MODES, EPS, IRC_MAX_RISER, IRC_MIN_TREAD,
+    rtStore, rtSolve,
     tokenize, evaluate, format, formatFtIn, formatInches, fmtNum, fraction, dimName,
     add, mul, div,
     lumberLength, rightAngle, rafters, stairs,
